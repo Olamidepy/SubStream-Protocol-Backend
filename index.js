@@ -18,6 +18,7 @@ app.use('/auth', require('./routes/auth'));
 app.use('/content', require('./routes/content'));
 app.use('/analytics', require('./routes/analytics'));
 app.use('/storage', require('./routes/storage'));
+app.use('/posts', require('./routes/posts'));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -29,7 +30,8 @@ app.get('/health', (req, res) => {
       auth: 'active',
       content: 'active',
       analytics: 'active',
-      storage: 'active'
+      storage: 'active',
+      posts: 'active'
     }
   });
 });
@@ -46,6 +48,7 @@ app.get('/', (req, res) => {
       content: '/content',
       analytics: '/analytics',
       storage: '/storage',
+      posts: '/posts',
       health: '/health'
     }
   });

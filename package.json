@@ -5,16 +5,25 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "dev": "nodemon index.js",
     "test": "jest"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.6.1",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
-    "express": "^5.2.1"
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.2",
+    "ethers": "^6.8.1",
+    "multer": "^1.4.5-lts.1",
+    "axios": "^1.6.2",
+    "form-data": "^4.0.0",
+    "web3.storage": "^4.5.4",
+    "ipfs-http-client": "^60.0.1"
   },
   "devDependencies": {
     "jest": "^29.7.0",
-    "supertest": "^7.0.0"
+    "supertest": "^7.0.0",
+    "nodemon": "^3.0.2"
   }
 }

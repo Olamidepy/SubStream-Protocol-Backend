@@ -99,6 +99,20 @@ class AppDatabase {
 
       CREATE INDEX IF NOT EXISTS idx_creator_audit_logs_creator_timestamp
       ON creator_audit_logs (creator_id, timestamp DESC);
+
+      CREATE TABLE IF NOT EXISTS comments (
+        id TEXT PRIMARY KEY,
+        post_id TEXT NOT NULL,
+        user_address TEXT NOT NULL,
+        creator_id TEXT NOT NULL,
+        content TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_comments_post_id ON comments (post_id);
+      CREATE INDEX IF NOT EXISTS idx_comments_creator_id ON comments (creator_id);
+      CREATE INDEX IF NOT EXISTS idx_comments_user_address ON comments (user_address);
     `);
   }
 
@@ -536,6 +550,42 @@ class AppDatabase {
         `SELECT creator_id AS creatorId, wallet_address AS walletAddress, active, subscribed_at AS subscribedAt, unsubscribed_at AS unsubscribedAt FROM subscriptions WHERE creator_id = ? AND wallet_address = ?`,
       )
       .get(creatorId, walletAddress);
+   * Create a new comment.
+   *
+   * @param {{postId: string, userAddress: string, creatorId: string, content: string}} comment Comment data.
+   * @returns {object}
+   */
+  createComment(comment) {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `
+        INSERT INTO comments (id, post_id, user_address, creator_id, content, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `,
+      )
+      .run(id, comment.postId, comment.userAddress, comment.creatorId, comment.content, now, now);
+
+    return this.getCommentById(id);
+  }
+
+  /**
+   * Get a comment by ID.
+   *
+   * @param {string} commentId Comment identifier.
+   * @returns {object|null}
+   */
+  getCommentById(commentId) {
+    const row = this.db
+      .prepare(
+        `
+        SELECT id, post_id AS postId, user_address AS userAddress, creator_id AS creatorId, content, created_at AS createdAt, updated_at AS updatedAt
+        FROM comments
+        WHERE id = ?
+      `,
+      )
+      .get(commentId);
 
     return row || null;
   }
@@ -617,6 +667,61 @@ class AppDatabase {
       .get(creatorId);
 
     return (row && Number(row.ct)) || 0;
+   * Get comments by post ID.
+   *
+   * @param {string} postId Post identifier.
+   * @returns {object[]}
+   */
+  getCommentsByPostId(postId) {
+    return this.db
+      .prepare(
+        `
+        SELECT id, post_id AS postId, user_address AS userAddress, creator_id AS creatorId, content, created_at AS createdAt, updated_at AS updatedAt
+        FROM comments
+        WHERE post_id = ?
+        ORDER BY created_at DESC
+      `,
+      )
+      .all(postId);
+  }
+
+  /**
+   * Update a comment.
+   *
+   * @param {{commentId: string, content: string}} input Update payload.
+   * @returns {object}
+   */
+  updateComment(input) {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `
+        UPDATE comments
+        SET content = ?, updated_at = ?
+        WHERE id = ?
+      `,
+      )
+      .run(input.content, now, input.commentId);
+
+    return this.getCommentById(input.commentId);
+  }
+
+  /**
+   * Delete a comment.
+   *
+   * @param {string} commentId Comment identifier.
+   * @returns {boolean}
+   */
+  deleteComment(commentId) {
+    const result = this.db
+      .prepare(
+        `
+        DELETE FROM comments WHERE id = ?
+      `,
+      )
+      .run(commentId);
+
+    return result.changes > 0;
   }
 }
 

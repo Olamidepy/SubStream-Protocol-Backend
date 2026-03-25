@@ -37,6 +37,14 @@ A comprehensive backend API for the SubStream Protocol, supporting wallet-based 
 - Database-level access control
 - Upgrade suggestions and tier management
 
+### ⚡ Asynchronous Event Processing
+- **RabbitMQ integration**: Reliable message queuing for background tasks
+- **Event-driven architecture**: Non-blocking processing of heavy operations
+- **Retry logic**: Automatic retry with exponential backoff for failed operations
+- **Circuit breaker**: Prevents cascading failures during high load
+- **Dead letter queue**: Failed message handling for debugging
+- **Background worker**: Separate process for handling emails, notifications, and leaderboard updates
+
 ## Quick Start
 
 ### Prerequisites
@@ -44,6 +52,7 @@ A comprehensive backend API for the SubStream Protocol, supporting wallet-based 
 - npm or yarn
 - FFmpeg (for video transcoding)
 - Redis (for job queue)
+- RabbitMQ (for asynchronous event processing)
 
 ### Installation
 
@@ -79,34 +88,57 @@ brew services start redis
 # Download from https://redis.io/download
 ```
 
-4. Install dependencies:
+4. Install and start RabbitMQ:
+```bash
+# Ubuntu/Debian
+sudo apt-get install rabbitmq-server
+sudo systemctl start rabbitmq-server
+
+# macOS
+brew install rabbitmq
+brew services start rabbitmq
+
+# Windows
+# Download from https://www.rabbitmq.com/download.html
+```
+
+5. Install dependencies:
 ```bash
 npm install
 ```
 
-5. Copy environment variables:
+6. Copy environment variables:
 ```bash
 cp .env.example .env
 ```
 
-6. Configure your environment variables in `.env`:
+7. Configure your environment variables in `.env`:
 - Set your JWT secret
 - Add IPFS service API keys
 - Configure Redis connection
+- Configure RabbitMQ connection
 - Set up S3 credentials (optional)
 - Configure FFmpeg path
 - Set up CDN base URL
 
-7. Start the server:
+8. Start the services:
+
+**Option 1: Start API and Worker Together**
 ```bash
-# Development
+npm run dev
+```
+
+**Option 2: Start Services Separately (Recommended for Production)**
+```bash
+# Terminal 1: Start the API server
 npm run dev
 
-# Production
-npm start
+# Terminal 2: Start the background worker
+npm run worker:dev
 ```
 
 The API will be available at `http://localhost:3000`
+The background worker will process events from RabbitMQ queues
 
 ## API Endpoints
 

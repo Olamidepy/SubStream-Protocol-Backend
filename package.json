@@ -6,10 +6,13 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
+    "worker": "node worker.js",
+    "worker:dev": "nodemon worker.js",
     "test": "jest"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^14.6.1",
+    "amqplib": "^0.10.3",
     "aws-sdk": "^2.1500.0",
     "axios": "^1.6.2",
     "bull": "^4.12.2",

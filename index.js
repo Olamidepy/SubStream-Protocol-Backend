@@ -14,6 +14,7 @@ const { SorobanSubscriptionVerifier } = require('./src/services/sorobanSubscript
 const { SubscriptionService } = require('./src/services/subscriptionService');
 const { SubscriptionExpiryChecker } = require('./src/services/subscriptionExpiryChecker');
 const VideoProcessingWorker = require('./src/services/videoProcessingWorker');
+const { BackgroundWorkerService } = require('./src/services/backgroundWorkerService');
 const createVideoRoutes = require('./routes/video');
 const { buildAuditLogCsv } = require('./src/utils/export/auditLogCsv');
 const { buildAuditLogPdf } = require('./src/utils/export/auditLogPdf');
@@ -39,7 +40,7 @@ function createApp(dependencies = {}) {
     dependencies.subscriptionVerifier || new SorobanSubscriptionVerifier(config);
   const tokenService = dependencies.tokenService || new CdnTokenService(config);
   const subscriptionService =
-    dependencies.subscriptionService || new SubscriptionService({ database, auditLogService });
+    dependencies.subscriptionService || new SubscriptionService({ database, auditLogService, config });
   const subscriptionExpiryChecker =
     dependencies.subscriptionExpiryChecker ||
     new SubscriptionExpiryChecker({
@@ -47,9 +48,20 @@ function createApp(dependencies = {}) {
       lowBalanceEmailService: dependencies.lowBalanceEmailService,
     });
 
+  // Initialize background worker service for async processing
+  const backgroundWorker = dependencies.backgroundWorker || new BackgroundWorkerService(config.rabbitmq);
+
   // expose the service on the express app so external routers can access it
   app.set('subscriptionService', subscriptionService);
   app.set('subscriptionExpiryChecker', subscriptionExpiryChecker);
+  app.set('backgroundWorker', backgroundWorker);
+
+  // Start background worker if RabbitMQ is configured
+  if (config.rabbitmq && (config.rabbitmq.url || config.rabbitmq.host)) {
+    backgroundWorker.start().catch(error => {
+      console.error('Failed to start background worker:', error);
+    });
+  }
 
   const dayInMs = 24 * 60 * 60 * 1000;
   const subscriptionExpiryCheckerInterval = setInterval(async () => {
@@ -448,11 +460,6 @@ app.get("/health", (req, res) => {
       storage: 'active',
       posts: 'active'
     }
-      auth: "active",
-      content: "active",
-      analytics: "active",
-      storage: "active",
-    },
   });
 });
 
@@ -471,12 +478,6 @@ app.get("/", (req, res) => {
       posts: '/posts',
       health: '/health'
     }
-      auth: "/auth",
-      content: "/content",
-      analytics: "/analytics",
-      storage: "/storage",
-      health: "/health",
-    },
   });
 });
 

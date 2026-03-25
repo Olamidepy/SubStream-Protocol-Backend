@@ -63,6 +63,19 @@ function loadConfig(env = process.env) {
       port: Number(env.IPFS_PORT || 5001),
       protocol: env.IPFS_PROTOCOL || 'http',
     } : null,
+    rabbitmq: {
+      url: env.RABBITMQ_URL || '',
+      host: env.RABBITMQ_HOST || 'localhost',
+      port: Number(env.RABBITMQ_PORT || 5672),
+      username: env.RABBITMQ_USERNAME || '',
+      password: env.RABBITMQ_PASSWORD || '',
+      vhost: env.RABBITMQ_VHOST || '/',
+      eventExchange: env.RABBITMQ_EVENT_EXCHANGE || 'substream_events',
+      eventQueue: env.RABBITMQ_EVENT_QUEUE || 'substream_events_queue',
+      notificationQueue: env.RABBITMQ_NOTIFICATION_QUEUE || 'substream_notifications_queue',
+      emailQueue: env.RABBITMQ_EMAIL_QUEUE || 'substream_emails_queue',
+      leaderboardQueue: env.RABBITMQ_LEADERBOARD_QUEUE || 'substream_leaderboard_queue',
+    },
   };
 }
 

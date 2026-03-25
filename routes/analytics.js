@@ -3,6 +3,82 @@ const router = express.Router();
 const analyticsService = require('../services/analyticsService');
 const { authenticateToken } = require('../middleware/auth');
 
+// Get global platform statistics (cached for performance)
+router.get('/global', async (req, res) => {
+  try {
+    const globalStatsService = req.app.get('globalStatsService');
+    if (!globalStatsService) {
+      return res.status(503).json({
+        success: false,
+        error: 'Global stats service not available'
+      });
+    }
+
+    const stats = await globalStatsService.getGlobalStats();
+    
+    res.json({
+      success: true,
+      data: stats,
+      timestamp: new Date().toISOString()
+    });
+    
+  } catch (error) {
+    console.error('Global analytics error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
+// Get homepage data (optimized for viral traffic spikes)
+router.get('/homepage', async (req, res) => {
+  try {
+    const globalStatsService = req.app.get('globalStatsService');
+    if (!globalStatsService) {
+      return res.status(503).json({
+        success: false,
+        error: 'Global stats service not available'
+      });
+    }
+
+    const stats = await globalStatsService.getGlobalStats();
+    
+    // Homepage-specific data aggregation
+    const homepageData = {
+      // Key metrics for homepage display
+      totalValueLocked: stats.totalValueLocked,
+      totalUsers: stats.totalUsers,
+      totalCreators: stats.totalCreators,
+      totalVideos: stats.totalVideos,
+      
+      // Trending content (top 5 for homepage)
+      trendingCreators: stats.trendingCreators.slice(0, 5),
+      
+      // Performance metadata
+      lastUpdated: stats.lastUpdated,
+      cacheStatus: 'cached' // Indicates this data is from cache
+    };
+    
+    res.json({
+      success: true,
+      data: homepageData,
+      timestamp: new Date().toISOString(),
+      cacheInfo: {
+        ttl: 60, // seconds
+        refreshInterval: 60 // seconds
+      }
+    });
+    
+  } catch (error) {
+    console.error('Homepage analytics error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
 // Record view-time event
 router.post('/view-event', authenticateToken, (req, res) => {
   try {

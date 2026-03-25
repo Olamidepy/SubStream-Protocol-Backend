@@ -15,7 +15,10 @@ const { SubscriptionService } = require('./src/services/subscriptionService');
 const { SubscriptionExpiryChecker } = require('./src/services/subscriptionExpiryChecker');
 const VideoProcessingWorker = require('./src/services/videoProcessingWorker');
 const { BackgroundWorkerService } = require('./src/services/backgroundWorkerService');
+const GlobalStatsService = require('./src/services/globalStatsService');
+const GlobalStatsWorker = require('./src/services/globalStatsWorker');
 const createVideoRoutes = require('./routes/video');
+const createGlobalStatsRouter = require('./routes/globalStats');
 const { buildAuditLogCsv } = require('./src/utils/export/auditLogCsv');
 const { buildAuditLogPdf } = require('./src/utils/export/auditLogPdf');
 const { getRequestIp } = require('./src/utils/requestIp');
@@ -84,10 +87,32 @@ function createApp(dependencies = {}) {
 
   const videoWorker = dependencies.videoWorker || new VideoProcessingWorker(config, database);
 
+  // Initialize global stats service and worker
+  const globalStatsService = dependencies.globalStatsService || new GlobalStatsService(database);
+  const globalStatsWorker = dependencies.globalStatsWorker || new GlobalStatsWorker(database, {
+    refreshInterval: process.env.GLOBAL_STATS_REFRESH_INTERVAL ? parseInt(process.env.GLOBAL_STATS_REFRESH_INTERVAL) : 60000,
+    initialDelay: process.env.GLOBAL_STATS_INITIAL_DELAY ? parseInt(process.env.GLOBAL_STATS_INITIAL_DELAY) : 5000
+  });
+
+  // expose services on the express app so external routers can access them
+  app.set('subscriptionService', subscriptionService);
+  app.set('subscriptionExpiryChecker', subscriptionExpiryChecker);
+  app.set('backgroundWorker', backgroundWorker);
+  app.set('globalStatsService', globalStatsService);
+  app.set('globalStatsWorker', globalStatsWorker);
+
+  // Start global stats worker
+  globalStatsWorker.start().catch(error => {
+    console.error('Failed to start global stats worker:', error);
+  });
+
   app.use(cors());
   app.use(express.json());
   // Subscription events webhook
   app.use('/api/subscription', require('./routes/subscription'));
+  
+  // Global stats endpoints
+  app.use('/api/global-stats', createGlobalStatsRouter({ database, globalStatsService }));
 
   app.use((req, res, next) => {
     req.config = config;

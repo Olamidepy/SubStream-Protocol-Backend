@@ -24,10 +24,13 @@ const VideoProcessingWorker = require('./src/services/videoProcessingWorker');
 const { BackgroundWorkerService } = require('./src/services/backgroundWorkerService');
 const GlobalStatsService = require('./src/services/globalStatsService');
 const GlobalStatsWorker = require('./src/services/globalStatsWorker');
+const SocialTokenGatingService = require('./services/socialTokenGatingService');
+const SocialTokenGatingMiddleware = require('./middleware/socialTokenGating');
 const createVideoRoutes = require('./routes/video');
 const createGlobalStatsRouter = require('./routes/globalStats');
 const createDeviceRoutes = require('./routes/device');
 const createSwaggerRoutes = require('./routes/swagger');
+const createSocialTokenRoutes = require('./routes/socialToken');
 const { buildAuditLogCsv } = require('./src/utils/export/auditLogCsv');
 const { buildAuditLogPdf } = require('./src/utils/export/auditLogPdf');
 const { getRequestIp } = require('./src/utils/requestIp');
@@ -66,7 +69,7 @@ function createApp(dependencies = {}) {
       notificationService,
       emailUtil: { sendEmail },
     });
-    dependencies.subscriptionService || new SubscriptionService({ database, auditLogService, config });
+  dependencies.subscriptionService || new SubscriptionService({ database, auditLogService, config });
   const subscriptionExpiryChecker =
     dependencies.subscriptionExpiryChecker ||
     new SubscriptionExpiryChecker({
@@ -110,6 +113,15 @@ function createApp(dependencies = {}) {
 
   const videoWorker = dependencies.videoWorker || new VideoProcessingWorker(config, database);
 
+  // Initialize leaderboard service and worker
+  const redisClient = getRedisClient();
+  const leaderboardService = dependencies.leaderboardService || new EngagementLeaderboardService(config, database, redisClient);
+  const leaderboardWorker = dependencies.leaderboardWorker || new LeaderboardWorker(config, database, redisClient, leaderboardService);
+
+  // Initialize social token gating service and middleware
+  const socialTokenService = dependencies.socialTokenService || new SocialTokenGatingService(config, database, redisClient);
+  const socialTokenMiddleware = dependencies.socialTokenMiddleware || new SocialTokenGatingMiddleware(socialTokenService, database, redisClient);
+
   // Initialize global stats service and worker
   const globalStatsService = dependencies.globalStatsService || new GlobalStatsService(database);
   const globalStatsWorker = dependencies.globalStatsWorker || new GlobalStatsWorker(database, {
@@ -128,6 +140,10 @@ function createApp(dependencies = {}) {
   app.set('backgroundWorker', backgroundWorker);
   app.set('globalStatsService', globalStatsService);
   app.set('globalStatsWorker', globalStatsWorker);
+  app.set('leaderboardService', leaderboardService);
+  app.set('leaderboardWorker', leaderboardWorker);
+  app.set('socialTokenService', socialTokenService);
+  app.set('socialTokenMiddleware', socialTokenMiddleware);
   app.set('subdomainService', subdomainService);
   app.set('sslCertificateService', sslCertificateService);
 
@@ -148,22 +164,25 @@ function createApp(dependencies = {}) {
 
   app.use(cors());
   app.use(express.json());
-  
+
 
   // Subscription events webhook
   app.use('/api/subscription', require('./routes/subscription'));
   // Payouts API
   app.use('/api/payouts', require('./routes/payouts'));
-  
+
   // Global stats endpoints
   app.use('/api/global-stats', createGlobalStatsRouter({ database, globalStatsService }));
-  
+
   // Subdomain management endpoints
   app.use('/api/subdomains', createSubdomainRoutes({ database, config, subdomainService, sslCertificateService }));
 
   // Price feed endpoints
   const createPriceRouter = require('./routes/price');
   app.use('/api/price-feed', createPriceRouter());
+
+  // Social token gating endpoints
+  app.use('/api/social-token', createSocialTokenRoutes());
 
   app.use((req, res, next) => {
     req.config = config;
@@ -212,6 +231,32 @@ function createApp(dependencies = {}) {
         segmentPath: req.body.segmentPath,
       };
 
+      // Check if content requires social token gating
+      const socialTokenService = req.app.get('socialTokenService');
+      let socialTokenAccess = null;
+
+      if (socialTokenService) {
+        socialTokenAccess = await socialTokenService.checkContentAccess(
+          accessRequest.walletAddress,
+          accessRequest.contentId
+        );
+
+        // If social token gating is required and access is denied, return error
+        if (socialTokenAccess.requiresToken && !socialTokenAccess.hasAccess) {
+          return res.status(403).json({
+            error: 'Social token requirements not met',
+            code: 'INSUFFICIENT_SOCIAL_TOKENS',
+            details: {
+              assetCode: socialTokenAccess.assetCode,
+              assetIssuer: socialTokenAccess.assetIssuer,
+              minimumBalance: socialTokenAccess.minimumBalance,
+              reason: socialTokenAccess.reason
+            }
+          });
+        }
+      }
+
+      // Verify subscription (existing logic)
       const subscription = await subscriptionVerifier.verifySubscription(accessRequest);
 
       if (!subscription.active) {
@@ -222,13 +267,34 @@ function createApp(dependencies = {}) {
         });
       }
 
-      const issuedToken = tokenService.issueToken({
+      // Issue token with social token metadata if applicable
+      const tokenData = {
         walletAddress: accessRequest.walletAddress,
         creatorAddress: accessRequest.creatorAddress,
         contentId: accessRequest.contentId,
         segmentPath: accessRequest.segmentPath,
         subscription,
-      });
+      };
+
+      // Add social token session info if required
+      if (socialTokenAccess && socialTokenAccess.requiresToken && socialTokenAccess.hasAccess) {
+        const sessionData = await socialTokenService.startBalanceReverification(
+          null, // Will generate session ID
+          accessRequest.walletAddress,
+          accessRequest.contentId
+        );
+        tokenData.socialTokenSession = {
+          sessionId: sessionData.sessionId,
+          verificationInterval: socialTokenAccess.verificationInterval,
+          assetInfo: {
+            code: socialTokenAccess.assetCode,
+            issuer: socialTokenAccess.assetIssuer,
+            minimumBalance: socialTokenAccess.minimumBalance
+          }
+        };
+      }
+
+      const issuedToken = tokenService.issueToken(tokenData);
 
       return res.status(200).json({
         token: issuedToken.token,
@@ -240,6 +306,7 @@ function createApp(dependencies = {}) {
           segmentPath: accessRequest.segmentPath,
           token: issuedToken.token,
         }),
+        socialTokenSession: tokenData.socialTokenSession || null
       });
     } catch (error) {
       return res.status(error.statusCode || 503).json({
@@ -487,7 +554,7 @@ function createApp(dependencies = {}) {
   });
 
   app.use((req, res) => res.status(404).json({ success: false, error: 'Not found' }));
-  
+
   // Global error handler with Sentry integration
   app.use((err, req, res, next) => {
     // Log error with structured logging
@@ -498,15 +565,15 @@ function createApp(dependencies = {}) {
       walletAddress: req.user?.publicKey || req.body?.walletAddress,
       endpoint: req.originalUrl,
     };
-    
+
     // Capture with Sentry
     errorTracking.captureException(err, errorContext);
-    
+
     // Return error response
     res.status(err.statusCode || err.status || 500).json({
       success: false,
-      error: process.env.NODE_ENV === 'production' 
-        ? 'Internal server error' 
+      error: process.env.NODE_ENV === 'production'
+        ? 'Internal server error'
         : err.message,
       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
     });

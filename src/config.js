@@ -76,6 +76,26 @@ function loadConfig(env = process.env) {
       emailQueue: env.RABBITMQ_EMAIL_QUEUE || 'substream_emails_queue',
       leaderboardQueue: env.RABBITMQ_LEADERBOARD_QUEUE || 'substream_leaderboard_queue',
     },
+    substream: {
+      baseDomain: env.SUBSTREAM_BASE_DOMAIN || 'substream.app',
+      backendUrl: env.SUBSTREAM_BACKEND_URL || 'http://localhost:3000',
+      ssl: {
+        enabled: env.SUBSTREAM_SSL_ENABLED === 'true',
+        caddyConfigPath: env.SUBSTREAM_CADDY_CONFIG_PATH || '/etc/caddy/Caddyfile',
+        caddyApiUrl: env.SUBSTREAM_CADDY_API_URL || 'http://localhost:2019',
+        certsDir: env.SUBSTREAM_CERTS_DIR || '/etc/caddy/certs',
+        testMode: env.SUBSTREAM_SSL_TEST_MODE === 'true',
+        useApi: env.SUBSTREAM_CADDY_USE_API === 'true',
+      },
+    },
+    ssl: {
+      letsEncryptEmail: env.LETS_ENCRYPT_EMAIL || 'admin@substream.app',
+      caddyConfigPath: env.CADDY_CONFIG_PATH || '/etc/caddy/Caddyfile',
+      caddyApiUrl: env.CADDY_API_URL || 'http://localhost:2019',
+      certsDir: env.CERTS_DIR || '/etc/caddy/certs',
+      testMode: env.SSL_TEST_MODE === 'true',
+      useApi: env.CADDY_USE_API === 'true',
+    },
   };
 }
 

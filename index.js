@@ -24,6 +24,10 @@ const { buildAuditLogPdf } = require('./src/utils/export/auditLogPdf');
 const { getRequestIp } = require('./src/utils/requestIp');
 const { getRedisClient, closeRedisClient } = require('./src/config/redis');
 const { createRateLimiter } = require('./middleware/rateLimiter');
+const { SubdomainMiddleware } = require('./src/middleware/subdomainMiddleware');
+const { SubdomainService } = require('./src/services/subdomainService');
+const { SslCertificateService } = require('./src/services/sslCertificateService');
+const createSubdomainRoutes = require('./routes/subdomain');
 
 /**
  * Create the Express application with injectable services for testing.
@@ -94,12 +98,19 @@ function createApp(dependencies = {}) {
     initialDelay: process.env.GLOBAL_STATS_INITIAL_DELAY ? parseInt(process.env.GLOBAL_STATS_INITIAL_DELAY) : 5000
   });
 
+  // Initialize subdomain and SSL services
+  const subdomainService = dependencies.subdomainService || new SubdomainService(database, config);
+  const sslCertificateService = dependencies.sslCertificateService || new SslCertificateService(config);
+  const subdomainMiddleware = dependencies.subdomainMiddleware || new SubdomainMiddleware(database, config);
+
   // expose services on the express app so external routers can access them
   app.set('subscriptionService', subscriptionService);
   app.set('subscriptionExpiryChecker', subscriptionExpiryChecker);
   app.set('backgroundWorker', backgroundWorker);
   app.set('globalStatsService', globalStatsService);
   app.set('globalStatsWorker', globalStatsWorker);
+  app.set('subdomainService', subdomainService);
+  app.set('sslCertificateService', sslCertificateService);
 
   // Start global stats worker
   globalStatsWorker.start().catch(error => {
@@ -108,11 +119,18 @@ function createApp(dependencies = {}) {
 
   app.use(cors());
   app.use(express.json());
+  
+  // Subdomain routing middleware - must be before other routes
+  app.use(subdomainMiddleware.middleware());
+  
   // Subscription events webhook
   app.use('/api/subscription', require('./routes/subscription'));
   
   // Global stats endpoints
   app.use('/api/global-stats', createGlobalStatsRouter({ database, globalStatsService }));
+  
+  // Subdomain management endpoints
+  app.use('/api/subdomains', createSubdomainRoutes({ database, config, subdomainService, sslCertificateService }));
 
   app.use((req, res, next) => {
     req.config = config;

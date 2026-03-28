@@ -130,6 +130,18 @@ class AppDatabase {
       CREATE INDEX IF NOT EXISTS idx_comments_post_id ON comments (post_id);
       CREATE INDEX IF NOT EXISTS idx_comments_creator_id ON comments (creator_id);
       CREATE INDEX IF NOT EXISTS idx_comments_user_address ON comments (user_address);
+
+      CREATE TABLE IF NOT EXISTS creator_subdomains (
+        id TEXT PRIMARY KEY,
+        creator_id TEXT NOT NULL REFERENCES creators(id),
+        subdomain TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_creator_subdomains_subdomain ON creator_subdomains (subdomain);
+      CREATE INDEX IF NOT EXISTS idx_creator_subdomains_creator_id ON creator_subdomains (creator_id);
     `);
   }
 
@@ -839,6 +851,127 @@ class AppDatabase {
       `,
       )
       .run(commentId);
+
+    return result.changes > 0;
+  }
+
+  /**
+   * Create a subdomain for a creator.
+   *
+   * @param {{creatorId: string, subdomain: string}} subdomainData Subdomain data.
+   * @returns {object}
+   */
+  createCreatorSubdomain(subdomainData) {
+    const id = crypto.randomUUID();
+    const now = new Date().toISOString();
+    this.ensureCreator(subdomainData.creatorId);
+    
+    this.db
+      .prepare(
+        `
+        INSERT INTO creator_subdomains (id, creator_id, subdomain, status, created_at, updated_at)
+        VALUES (?, ?, ?, 'active', ?, ?)
+      `,
+      )
+      .run(id, subdomainData.creatorId, subdomainData.subdomain, now, now);
+
+    return this.getCreatorSubdomain(id);
+  }
+
+  /**
+   * Get a creator subdomain by ID.
+   *
+   * @param {string} subdomainId Subdomain identifier.
+   * @returns {object|null}
+   */
+  getCreatorSubdomain(subdomainId) {
+    const row = this.db
+      .prepare(
+        `
+        SELECT id, creator_id AS creatorId, subdomain, status, created_at AS createdAt, updated_at AS updatedAt
+        FROM creator_subdomains
+        WHERE id = ?
+      `,
+      )
+      .get(subdomainId);
+
+    return row || null;
+  }
+
+  /**
+   * Get a creator subdomain by subdomain name.
+   *
+   * @param {string} subdomain Subdomain name.
+   * @returns {object|null}
+   */
+  getCreatorSubdomainByName(subdomain) {
+    const row = this.db
+      .prepare(
+        `
+        SELECT id, creator_id AS creatorId, subdomain, status, created_at AS createdAt, updated_at AS updatedAt
+        FROM creator_subdomains
+        WHERE subdomain = ? AND status = 'active'
+      `,
+      )
+      .get(subdomain);
+
+    return row || null;
+  }
+
+  /**
+   * Get all subdomains for a creator.
+   *
+   * @param {string} creatorId Creator identifier.
+   * @returns {object[]}
+   */
+  getCreatorSubdomains(creatorId) {
+    return this.db
+      .prepare(
+        `
+        SELECT id, creator_id AS creatorId, subdomain, status, created_at AS createdAt, updated_at AS updatedAt
+        FROM creator_subdomains
+        WHERE creator_id = ?
+        ORDER BY created_at DESC
+      `,
+      )
+      .all(creatorId);
+  }
+
+  /**
+   * Update a subdomain's status.
+   *
+   * @param {{subdomainId: string, status: string}} updateData Update data.
+   * @returns {object}
+   */
+  updateSubdomainStatus(updateData) {
+    const now = new Date().toISOString();
+    this.db
+      .prepare(
+        `
+        UPDATE creator_subdomains
+        SET status = ?, updated_at = ?
+        WHERE id = ?
+      `,
+      )
+      .run(updateData.status, now, updateData.subdomainId);
+
+    return this.getCreatorSubdomain(updateData.subdomainId);
+  }
+
+  /**
+   * Delete a creator subdomain.
+   *
+   * @param {string} subdomainId Subdomain identifier.
+   * @returns {boolean}
+   */
+  deleteCreatorSubdomain(subdomainId) {
+    const result = this.db
+      .prepare(
+        `
+        DELETE FROM creator_subdomains WHERE id = ?
+      `,
+      )
+      .run(subdomainId);
 
     return result.changes > 0;
   }

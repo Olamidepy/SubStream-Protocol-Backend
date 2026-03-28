@@ -22,12 +22,18 @@ const { SubscriptionService } = require('./src/services/subscriptionService');
 const { SubscriptionExpiryChecker } = require('./src/services/subscriptionExpiryChecker');
 const VideoProcessingWorker = require('./src/services/videoProcessingWorker');
 const { BackgroundWorkerService } = require('./src/services/backgroundWorkerService');
-const GlobalStatsService = require('./src/services/globalStatsService');
+const { GlobalStatsService } = require('./src/services/globalStatsService');
 const GlobalStatsWorker = require('./src/services/globalStatsWorker');
+const { AMLScannerWorker } = require('./src/services/amlScannerWorker');
+const { IPIntelligenceService } = require('./src/services/ipIntelligenceService');
+const { IPBlockingService } = require('./src/services/ipBlockingService');
+const { IPMonitoringService } = require('./src/services/ipMonitoringService');
+const { IPIntelligenceMiddleware } = require('./src/middleware/ipIntelligenceMiddleware');
 const createVideoRoutes = require('./routes/video');
 const createGlobalStatsRouter = require('./routes/globalStats');
 const createDeviceRoutes = require('./routes/device');
 const createSwaggerRoutes = require('./routes/swagger');
+const { createIPIntelligenceRoutes } = require('./routes/ipIntelligence');
 const { buildAuditLogCsv } = require('./src/utils/export/auditLogCsv');
 const { buildAuditLogPdf } = require('./src/utils/export/auditLogPdf');
 const { getRequestIp } = require('./src/utils/requestIp');
@@ -66,7 +72,7 @@ function createApp(dependencies = {}) {
       notificationService,
       emailUtil: { sendEmail },
     });
-    dependencies.subscriptionService || new SubscriptionService({ database, auditLogService, config });
+  dependencies.subscriptionService || new SubscriptionService({ database, auditLogService, config });
   const subscriptionExpiryChecker =
     dependencies.subscriptionExpiryChecker ||
     new SubscriptionExpiryChecker({
@@ -82,11 +88,43 @@ function createApp(dependencies = {}) {
   app.set('subscriptionExpiryChecker', subscriptionExpiryChecker);
   app.set('backgroundWorker', backgroundWorker);
 
-  // Start background worker if RabbitMQ is configured
-  if (config.rabbitmq && (config.rabbitmq.url || config.rabbitmq.host)) {
-    backgroundWorker.start().catch(error => {
-      console.error('Failed to start background worker:', error);
+  // Initialize and start AML scanner if enabled
+  let amlScannerWorker = null;
+  if (config.aml && config.aml.enabled) {
+    amlScannerWorker = dependencies.amlScannerWorker || new AMLScannerWorker(database, config.aml);
+    app.set('amlScannerWorker', amlScannerWorker);
+
+    amlScannerWorker.start().catch(error => {
+      console.error('Failed to start AML scanner worker:', error);
     });
+
+    console.log('AML Scanner Worker initialized');
+  }
+
+  // Initialize IP intelligence services if enabled
+  let ipIntelligenceService = null;
+  let ipBlockingService = null;
+  let ipMonitoringService = null;
+  let ipMiddleware = null;
+
+  if (config.ipIntelligence && config.ipIntelligence.enabled) {
+    ipIntelligenceService = dependencies.ipIntelligenceService || new IPIntelligenceService(config.ipIntelligence);
+    ipBlockingService = dependencies.ipBlockingService || new IPBlockingService(database, config.ipIntelligence);
+    ipMonitoringService = dependencies.ipMonitoringService || new IPMonitoringService(database, config.ipIntelligence);
+    ipMiddleware = new IPIntelligenceMiddleware(ipIntelligenceService, config.ipIntelligence);
+
+    // Expose services on the express app
+    app.set('ipIntelligenceService', ipIntelligenceService);
+    app.set('ipBlockingService', ipBlockingService);
+    app.set('ipMonitoringService', ipMonitoringService);
+    app.set('ipIntelligenceMiddleware', ipMiddleware);
+
+    // Start IP monitoring service
+    ipMonitoringService.start().catch(error => {
+      console.error('Failed to start IP monitoring service:', error);
+    });
+
+    console.log('IP Intelligence services initialized');
   }
 
   const dayInMs = 24 * 60 * 60 * 1000;
@@ -141,14 +179,29 @@ function createApp(dependencies = {}) {
 
   app.use(cors());
   app.use(express.json());
-  
+
   // Add request tracing middleware for structured logging
   app.use(requestTracingMiddleware);
+
+  // Add IP intelligence middleware if enabled
+  if (ipMiddleware) {
+    // Apply IP intelligence checks to sensitive endpoints
+    app.use('/api/cdn', ipMiddleware.createGeneralMiddleware('cdn_access'));
+    app.use('/api/creator', ipMiddleware.createCreatorMiddleware());
+    app.use('/api/creator/videos', ipMiddleware.createContentMiddleware());
+    app.use('/api/payouts', ipMiddleware.createWithdrawalMiddleware());
+
+    // SIWS flow protection
+    app.use('/api/subscription', ipMiddleware.createSIWSMiddleware());
+
+    logger.info('IP Intelligence middleware applied to sensitive endpoints');
+  }
+
   // Subscription events webhook
   app.use('/api/subscription', require('./routes/subscription'));
   // Payouts API
   app.use('/api/payouts', require('./routes/payouts'));
-  
+
   // Global stats endpoints
   app.use('/api/global-stats', createGlobalStatsRouter({ database, globalStatsService }));
 
@@ -403,6 +456,15 @@ function createApp(dependencies = {}) {
   // API Documentation with Swagger UI
   app.use('/api/docs', createSwaggerRoutes);
 
+  // IP Intelligence management routes
+  if (ipIntelligenceService) {
+    app.use('/api/ip-intelligence', createIPIntelligenceRoutes({
+      ipIntelligenceService,
+      ipBlockingService,
+      ipMonitoringService
+    }));
+  }
+
   // Health check endpoint
   app.get('/health', async (req, res) => {
     const health = {
@@ -414,6 +476,8 @@ function createApp(dependencies = {}) {
         redis: 'Unknown',
         rabbitmq: 'Unknown',
         stellar: 'Unknown',
+        aml: 'Unknown',
+        ipIntelligence: 'Unknown'
       },
     };
 
@@ -470,6 +534,33 @@ function createApp(dependencies = {}) {
       isDegraded = true;
     }
 
+    // Check AML Scanner
+    try {
+      if (amlScannerWorker) {
+        const stats = amlScannerWorker.getScanStats();
+        health.services.aml = stats.isRunning ? 'Running' : 'Stopped';
+        if (!stats.isRunning) isDegraded = true;
+      } else {
+        health.services.aml = 'Not Configured';
+      }
+    } catch (error) {
+      health.services.aml = 'Error';
+      isDegraded = true;
+    }
+
+    // Check IP Intelligence
+    try {
+      if (ipIntelligenceService) {
+        const stats = ipIntelligenceService.getServiceStats();
+        health.services.ipIntelligence = 'Running';
+      } else {
+        health.services.ipIntelligence = 'Not Configured';
+      }
+    } catch (error) {
+      health.services.ipIntelligence = 'Error';
+      isDegraded = true;
+    }
+
     if (isDegraded) {
       health.status = 'Degraded';
     }
@@ -478,7 +569,7 @@ function createApp(dependencies = {}) {
   });
 
   app.use((req, res) => res.status(404).json({ success: false, error: 'Not found' }));
-  
+
   // Global error handler with Sentry integration
   app.use((err, req, res, next) => {
     // Log error with structured logging
@@ -489,15 +580,15 @@ function createApp(dependencies = {}) {
       walletAddress: req.user?.publicKey || req.body?.walletAddress,
       endpoint: req.originalUrl,
     };
-    
+
     // Capture with Sentry
     errorTracking.captureException(err, errorContext);
-    
+
     // Return error response
     res.status(err.statusCode || err.status || 500).json({
       success: false,
-      error: process.env.NODE_ENV === 'production' 
-        ? 'Internal server error' 
+      error: process.env.NODE_ENV === 'production'
+        ? 'Internal server error'
         : err.message,
       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
     });

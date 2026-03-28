@@ -24,10 +24,13 @@ const VideoProcessingWorker = require('./src/services/videoProcessingWorker');
 const { BackgroundWorkerService } = require('./src/services/backgroundWorkerService');
 const GlobalStatsService = require('./src/services/globalStatsService');
 const GlobalStatsWorker = require('./src/services/globalStatsWorker');
+const EngagementLeaderboardService = require('./services/engagementLeaderboardService');
+const LeaderboardWorker = require('./src/services/leaderboardWorker');
 const createVideoRoutes = require('./routes/video');
 const createGlobalStatsRouter = require('./routes/globalStats');
 const createDeviceRoutes = require('./routes/device');
 const createSwaggerRoutes = require('./routes/swagger');
+const createLeaderboardRoutes = require('./routes/leaderboard');
 const { buildAuditLogCsv } = require('./src/utils/export/auditLogCsv');
 const { buildAuditLogPdf } = require('./src/utils/export/auditLogPdf');
 const { getRequestIp } = require('./src/utils/requestIp');
@@ -66,7 +69,7 @@ function createApp(dependencies = {}) {
       notificationService,
       emailUtil: { sendEmail },
     });
-    dependencies.subscriptionService || new SubscriptionService({ database, auditLogService, config });
+  dependencies.subscriptionService || new SubscriptionService({ database, auditLogService, config });
   const subscriptionExpiryChecker =
     dependencies.subscriptionExpiryChecker ||
     new SubscriptionExpiryChecker({
@@ -82,10 +85,19 @@ function createApp(dependencies = {}) {
   app.set('subscriptionExpiryChecker', subscriptionExpiryChecker);
   app.set('backgroundWorker', backgroundWorker);
 
-  // Start background worker if RabbitMQ is configured
-  if (config.rabbitmq && (config.rabbitmq.url || config.rabbitmq.host)) {
-    backgroundWorker.start().catch(error => {
-      console.error('Failed to start background worker:', error);
+  // Start federation worker if ActivityPub is enabled
+  if (config.activityPub?.enabled !== false) {
+    const federationWorker = dependencies.federationWorker || new FederationWorker(database, config);
+    federationWorker.start().catch(error => {
+      console.error('Failed to start federation worker:', error);
+    });
+  }
+
+  // Start leaderboard worker if enabled
+  if (config.leaderboard?.enabled !== false) {
+    const leaderboardWorker = dependencies.leaderboardWorker || new LeaderboardWorker(config, database, getRedisClient(), EngagementLeaderboardService);
+    leaderboardWorker.start().catch(error => {
+      console.error('Failed to start leaderboard worker:', error);
     });
   }
 
@@ -117,6 +129,11 @@ function createApp(dependencies = {}) {
     initialDelay: process.env.GLOBAL_STATS_INITIAL_DELAY ? parseInt(process.env.GLOBAL_STATS_INITIAL_DELAY) : 5000
   });
 
+  // Initialize leaderboard service and worker
+  const redisClient = getRedisClient();
+  const leaderboardService = dependencies.leaderboardService || new EngagementLeaderboardService(config, database, redisClient);
+  const leaderboardWorker = dependencies.leaderboardWorker || new LeaderboardWorker(config, database, redisClient, leaderboardService);
+
   // Initialize subdomain and SSL services
   const subdomainService = dependencies.subdomainService || new SubdomainService(database, config);
   const sslCertificateService = dependencies.sslCertificateService || new SslCertificateService(config);
@@ -128,6 +145,8 @@ function createApp(dependencies = {}) {
   app.set('backgroundWorker', backgroundWorker);
   app.set('globalStatsService', globalStatsService);
   app.set('globalStatsWorker', globalStatsWorker);
+  app.set('leaderboardService', leaderboardService);
+  app.set('leaderboardWorker', leaderboardWorker);
   app.set('subdomainService', subdomainService);
   app.set('sslCertificateService', sslCertificateService);
 
@@ -148,22 +167,25 @@ function createApp(dependencies = {}) {
 
   app.use(cors());
   app.use(express.json());
-  
+
 
   // Subscription events webhook
   app.use('/api/subscription', require('./routes/subscription'));
   // Payouts API
   app.use('/api/payouts', require('./routes/payouts'));
-  
+
   // Global stats endpoints
   app.use('/api/global-stats', createGlobalStatsRouter({ database, globalStatsService }));
-  
+
   // Subdomain management endpoints
   app.use('/api/subdomains', createSubdomainRoutes({ database, config, subdomainService, sslCertificateService }));
 
   // Price feed endpoints
   const createPriceRouter = require('./routes/price');
   app.use('/api/price-feed', createPriceRouter());
+
+  // Engagement leaderboard endpoints
+  app.use('/api/leaderboard', createLeaderboardRoutes());
 
   app.use((req, res, next) => {
     req.config = config;
@@ -487,7 +509,7 @@ function createApp(dependencies = {}) {
   });
 
   app.use((req, res) => res.status(404).json({ success: false, error: 'Not found' }));
-  
+
   // Global error handler with Sentry integration
   app.use((err, req, res, next) => {
     // Log error with structured logging
@@ -498,15 +520,15 @@ function createApp(dependencies = {}) {
       walletAddress: req.user?.publicKey || req.body?.walletAddress,
       endpoint: req.originalUrl,
     };
-    
+
     // Capture with Sentry
     errorTracking.captureException(err, errorContext);
-    
+
     // Return error response
     res.status(err.statusCode || err.status || 500).json({
       success: false,
-      error: process.env.NODE_ENV === 'production' 
-        ? 'Internal server error' 
+      error: process.env.NODE_ENV === 'production'
+        ? 'Internal server error'
         : err.message,
       ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
     });

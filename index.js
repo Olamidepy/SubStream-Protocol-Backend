@@ -4,6 +4,13 @@ const dotenv = require('dotenv');
 require('dotenv').config();
 dotenv.config();
 
+// Initialize structured logging and error tracking
+const { logger, requestTracingMiddleware } = require('./src/utils/logger');
+const { errorTracking } = require('./src/utils/errorTracking');
+
+// Initialize error tracking
+errorTracking.initialize();
+
 const { AppDatabase } = require('./src/db/appDatabase');
 const { loadConfig } = require('./src/config');
 const { CdnTokenService, TokenValidationError } = require('./src/services/cdnTokenService');
@@ -19,11 +26,14 @@ const GlobalStatsService = require('./src/services/globalStatsService');
 const GlobalStatsWorker = require('./src/services/globalStatsWorker');
 const createVideoRoutes = require('./routes/video');
 const createGlobalStatsRouter = require('./routes/globalStats');
+const createDeviceRoutes = require('./routes/device');
+const createSwaggerRoutes = require('./routes/swagger');
 const { buildAuditLogCsv } = require('./src/utils/export/auditLogCsv');
 const { buildAuditLogPdf } = require('./src/utils/export/auditLogPdf');
 const { getRequestIp } = require('./src/utils/requestIp');
 const { getRedisClient, closeRedisClient } = require('./src/config/redis');
 const { createRateLimiter } = require('./middleware/rateLimiter');
+const { DeviceFingerprintService } = require('./src/services/deviceFingerprintService');
 
 /**
  * Create the Express application with injectable services for testing.
@@ -131,6 +141,9 @@ function createApp(dependencies = {}) {
 
   app.use(cors());
   app.use(express.json());
+  
+  // Add request tracing middleware for structured logging
+  app.use(requestTracingMiddleware);
   // Subscription events webhook
   app.use('/api/subscription', require('./routes/subscription'));
   // Payouts API
@@ -380,6 +393,16 @@ function createApp(dependencies = {}) {
 
   app.use('/api/videos', createVideoRoutes(config, database, videoWorker));
 
+  // Device fingerprinting endpoints for fraud prevention
+  if (process.env.REDIS_URL || process.env.REDIS_HOST) {
+    const deviceService = new DeviceFingerprintService(getRedisClient());
+    app.set('deviceFingerprintService', deviceService);
+    app.use('/api/device', createDeviceRoutes);
+  }
+
+  // API Documentation with Swagger UI
+  app.use('/api/docs', createSwaggerRoutes);
+
   // Health check endpoint
   app.get('/health', async (req, res) => {
     const health = {
@@ -455,6 +478,30 @@ function createApp(dependencies = {}) {
   });
 
   app.use((req, res) => res.status(404).json({ success: false, error: 'Not found' }));
+  
+  // Global error handler with Sentry integration
+  app.use((err, req, res, next) => {
+    // Log error with structured logging
+    const errorContext = {
+      traceId: req.logger?.fields?.traceId,
+      method: req.method,
+      path: req.path,
+      walletAddress: req.user?.publicKey || req.body?.walletAddress,
+      endpoint: req.originalUrl,
+    };
+    
+    // Capture with Sentry
+    errorTracking.captureException(err, errorContext);
+    
+    // Return error response
+    res.status(err.statusCode || err.status || 500).json({
+      success: false,
+      error: process.env.NODE_ENV === 'production' 
+        ? 'Internal server error' 
+        : err.message,
+      ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
+    });
+  });
 
   return app;
 }

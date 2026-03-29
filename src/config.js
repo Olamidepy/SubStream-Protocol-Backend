@@ -51,6 +51,60 @@ function loadConfig(env = process.env) {
       password: env.REDIS_PASSWORD || '',
       db: Number(env.REDIS_DB || 0),
     },
+    aml: {
+      enabled: env.AML_ENABLED === 'true',
+      scanInterval: Number(env.AML_SCAN_INTERVAL_MS || 24 * 60 * 60 * 1000), // Daily
+      batchSize: Number(env.AML_BATCH_SIZE || 50),
+      maxRetries: Number(env.AML_MAX_RETRIES || 3),
+      complianceOfficerEmail: env.COMPLIANCE_OFFICER_EMAIL || '',
+      sanctions: {
+        ofacApiKey: env.OFAC_API_KEY || '',
+        euSanctionsApiKey: env.EU_SANCTIONS_API_KEY || '',
+        unSanctionsApiKey: env.UN_SANCTIONS_API_KEY || '',
+        ukSanctionsApiKey: env.UK_SANCTIONS_API_KEY || '',
+        cacheTimeout: Number(env.SANCTIONS_CACHE_TIMEOUT_MS || 60 * 60 * 1000), // 1 hour
+      }
+    },
+    ipIntelligence: {
+      enabled: env.IP_INTELLIGENCE_ENABLED === 'true',
+      providers: {
+        ipinfo: {
+          enabled: env.IPINFO_ENABLED === 'true',
+          apiKey: env.IPINFO_API_KEY || '',
+          timeout: Number(env.IPINFO_TIMEOUT || 5000)
+        },
+        maxmind: {
+          enabled: env.MAXMIND_ENABLED === 'true',
+          apiKey: env.MAXMIND_API_KEY || '',
+          timeout: Number(env.MAXMIND_TIMEOUT || 5000)
+        },
+        abuseipdb: {
+          enabled: env.ABUSEIPDB_ENABLED === 'true',
+          apiKey: env.ABUSEIPDB_API_KEY || '',
+          timeout: Number(env.ABUSEIPDB_TIMEOUT || 5000)
+        },
+        ipqualityscore: {
+          enabled: env.IPQUALITYSCORE_ENABLED === 'true',
+          apiKey: env.IPQUALITYSCORE_API_KEY || '',
+          timeout: Number(env.IPQUALITYSCORE_TIMEOUT || 5000)
+        }
+      },
+      riskThresholds: {
+        low: Number(env.IP_RISK_THRESHOLD_LOW || 30),
+        medium: Number(env.IP_RISK_THRESHOLD_MEDIUM || 60),
+        high: Number(env.IP_RISK_THRESHOLD_HIGH || 80),
+        critical: Number(env.IP_RISK_THRESHOLD_CRITICAL || 90)
+      },
+      cache: {
+        enabled: env.IP_CACHE_ENABLED !== 'false',
+        ttl: Number(env.IP_CACHE_TTL_MS || 3600000), // 1 hour
+        maxSize: Number(env.IP_CACHE_MAX_SIZE || 10000)
+      },
+      rateLimit: {
+        requestsPerMinute: Number(env.IP_RATE_LIMIT_PER_MINUTE || 100),
+        burstLimit: Number(env.IP_RATE_LIMIT_BURST || 20)
+      }
+    },
     s3: env.S3_BUCKET ? {
       bucket: env.S3_BUCKET,
       region: env.S3_REGION || 'us-east-1',

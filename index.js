@@ -3,6 +3,15 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 
 dotenv.config();
+require('dotenv').config();
+dotenv.config();
+
+// Initialize structured logging and error tracking
+const { logger, requestTracingMiddleware } = require('./src/utils/logger');
+const { errorTracking } = require('./src/utils/errorTracking');
+
+// Initialize error tracking
+errorTracking.initialize();
 
 const { AppDatabase } = require('./src/db/appDatabase');
 const { loadConfig } = require('./src/config');
@@ -11,9 +20,22 @@ const { CreatorActionService } = require('./src/services/creatorActionService');
 const { CreatorAuditLogService } = require('./src/services/creatorAuditLogService');
 const { CreatorAuthService } = require('./src/services/creatorAuthService');
 const { SorobanSubscriptionVerifier } = require('./src/services/sorobanSubscriptionVerifier');
+const { SubscriptionService } = require('./src/services/subscriptionService');
+const { SubscriptionExpiryChecker } = require('./src/services/subscriptionExpiryChecker');
+const VideoProcessingWorker = require('./src/services/videoProcessingWorker');
+const { BackgroundWorkerService } = require('./src/services/backgroundWorkerService');
+const GlobalStatsService = require('./src/services/globalStatsService');
+const GlobalStatsWorker = require('./src/services/globalStatsWorker');
+const createVideoRoutes = require('./routes/video');
+const createGlobalStatsRouter = require('./routes/globalStats');
+const createDeviceRoutes = require('./routes/device');
+const createSwaggerRoutes = require('./routes/swagger');
 const { buildAuditLogCsv } = require('./src/utils/export/auditLogCsv');
 const { buildAuditLogPdf } = require('./src/utils/export/auditLogPdf');
 const { getRequestIp } = require('./src/utils/requestIp');
+const { getRedisClient, closeRedisClient } = require('./src/config/redis');
+const { createRateLimiter } = require('./middleware/rateLimiter');
+
 
 // Tier middleware — attaches req.user.tier to every request
 const { attachTier } = require('./middleware/tierAuth');
@@ -30,6 +52,8 @@ function createApp(dependencies = {}) {
   const database = dependencies.database || new AppDatabase(config.database.filename);
   const auditLogService =
     dependencies.auditLogService || new CreatorAuditLogService(database);
+
+  const auditLogService = dependencies.auditLogService || new CreatorAuditLogService(database);
   const creatorActionService =
     dependencies.creatorActionService ||
     new CreatorActionService(database, auditLogService);
@@ -47,6 +71,136 @@ function createApp(dependencies = {}) {
   // Attach req.user = { address, tier } to every request.
   // Never rejects — unauthenticated requests get tier = 'guest'.
   app.use(attachTier);
+  // Notification and email utilities
+  const { NotificationService } = require('./src/services/notificationService');
+  const { sendEmail } = require('./src/utils/email');
+  const notificationService = dependencies.notificationService || new NotificationService(database);
+
+  const subscriptionService =
+    dependencies.subscriptionService || new SubscriptionService({
+      database,
+      auditLogService,
+      notificationService,
+      emailUtil: { sendEmail },
+    });
+    dependencies.subscriptionService || new SubscriptionService({ database, auditLogService, config });
+  const subscriptionExpiryChecker =
+    dependencies.subscriptionExpiryChecker ||
+    new SubscriptionExpiryChecker({
+      database,
+      lowBalanceEmailService: dependencies.lowBalanceEmailService,
+    });
+
+  // Initialize background worker service for async processing
+  const backgroundWorker = dependencies.backgroundWorker || new BackgroundWorkerService(config.rabbitmq);
+
+  // expose the service on the express app so external routers can access it
+  app.set('subscriptionService', subscriptionService);
+  app.set('subscriptionExpiryChecker', subscriptionExpiryChecker);
+  app.set('backgroundWorker', backgroundWorker);
+
+  // Start background worker if RabbitMQ is configured
+  if (config.rabbitmq && (config.rabbitmq.url || config.rabbitmq.host)) {
+    backgroundWorker.start().catch(error => {
+      console.error('Failed to start background worker:', error);
+    });
+  }
+
+  const dayInMs = 24 * 60 * 60 * 1000;
+  const subscriptionExpiryCheckerInterval = setInterval(async () => {
+    try {
+      await subscriptionExpiryChecker.runDailyCheck();
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        'Subscription expiry checker failed:',
+        error && error.message ? error.message : error,
+      );
+    }
+  }, dayInMs);
+
+  if (typeof subscriptionExpiryCheckerInterval.unref === 'function') {
+    subscriptionExpiryCheckerInterval.unref();
+  }
+
+  app.set('subscriptionExpiryCheckerInterval', subscriptionExpiryCheckerInterval);
+
+  const videoWorker = dependencies.videoWorker || new VideoProcessingWorker(config, database);
+
+  // Initialize global stats service and worker
+  const globalStatsService = dependencies.globalStatsService || new GlobalStatsService(database);
+  const globalStatsWorker = dependencies.globalStatsWorker || new GlobalStatsWorker(database, {
+    refreshInterval: process.env.GLOBAL_STATS_REFRESH_INTERVAL ? parseInt(process.env.GLOBAL_STATS_REFRESH_INTERVAL) : 60000,
+    initialDelay: process.env.GLOBAL_STATS_INITIAL_DELAY ? parseInt(process.env.GLOBAL_STATS_INITIAL_DELAY) : 5000
+  });
+
+  // Initialize subdomain and SSL services
+  const subdomainService = dependencies.subdomainService || new SubdomainService(database, config);
+  const sslCertificateService = dependencies.sslCertificateService || new SslCertificateService(config);
+  const subdomainMiddleware = dependencies.subdomainMiddleware || new SubdomainMiddleware(database, config);
+
+  // expose services on the express app so external routers can access them
+  app.set('subscriptionService', subscriptionService);
+  app.set('subscriptionExpiryChecker', subscriptionExpiryChecker);
+  app.set('backgroundWorker', backgroundWorker);
+  app.set('globalStatsService', globalStatsService);
+  app.set('globalStatsWorker', globalStatsWorker);
+  app.set('subdomainService', subdomainService);
+  app.set('sslCertificateService', sslCertificateService);
+
+  // Initialize and start predictive churn analysis worker
+  const { PredictiveChurnAnalysisWorker } = require('./src/services/predictiveChurnAnalysisWorker');
+  const churnAnalysisWorker = dependencies.churnAnalysisWorker || new PredictiveChurnAnalysisWorker(database, {
+    checkInterval: process.env.CHURN_ANALYSIS_INTERVAL ? parseInt(process.env.CHURN_ANALYSIS_INTERVAL) : 3600000,
+  });
+  app.set('churnAnalysisWorker', churnAnalysisWorker);
+  churnAnalysisWorker.start().catch(error => {
+    console.error('Failed to start PredictiveChurnAnalysisWorker:', error);
+  });
+
+  // Start global stats worker
+  globalStatsWorker.start().catch(error => {
+    console.error('Failed to start global stats worker:', error);
+  });
+
+  app.use(cors());
+  app.use(express.json());
+  
+
+  // Subscription events webhook
+  app.use('/api/subscription', require('./routes/subscription'));
+  // Payouts API
+  app.use('/api/payouts', require('./routes/payouts'));
+  
+  // Global stats endpoints
+  app.use('/api/global-stats', createGlobalStatsRouter({ database, globalStatsService }));
+  
+  // Subdomain management endpoints
+  app.use('/api/subdomains', createSubdomainRoutes({ database, config, subdomainService, sslCertificateService }));
+
+  // Price feed endpoints
+  const createPriceRouter = require('./routes/price');
+  app.use('/api/price-feed', createPriceRouter());
+
+  app.use((req, res, next) => {
+    req.config = config;
+    req.database = database;
+    req.subscriptionVerifier = subscriptionVerifier;
+    next();
+  });
+
+  // Leaky-bucket rate limiting per wallet address (requires Redis).
+  if (dependencies.rateLimiter) {
+    app.use('/api', dependencies.rateLimiter);
+  } else if (process.env.REDIS_URL || process.env.REDIS_HOST) {
+    app.use('/api', createRateLimiter({
+      redis: getRedisClient(),
+      bucketCapacity: Number(process.env.RATE_LIMIT_CAPACITY || 60),
+      leakRatePerSecond: Number(process.env.RATE_LIMIT_LEAK_RATE || 1),
+      blockDurationSeconds: Number(process.env.RATE_LIMIT_BLOCK_SECONDS || 300),
+      sybilThreshold: Number(process.env.SYBIL_THRESHOLD || 3),
+    }));
+  }
 
   // ── Health / root ──────────────────────────────────────────────────────────
   app.get('/', (req, res) => {
@@ -260,6 +414,20 @@ function createApp(dependencies = {}) {
     requireCreatorAuth(creatorAuthService),
     (req, res) => {
       const format = String(req.query.format || '').toLowerCase();
+  // Get creator stats (including cached subscriber count)
+  app.get('/api/creator/:id/stats', (req, res) => {
+    try {
+      const creatorId = req.params.id;
+      const subscriberCount = database.getCreatorSubscriberCount(creatorId);
+
+      return res.status(200).json({ success: true, data: { creatorId, subscriberCount } });
+    } catch (error) {
+      return res.status(500).json({ success: false, error: error.message || 'Failed to fetch stats' });
+    }
+  });
+
+  app.get('/api/creator/audit-log/export', requireCreatorAuth(creatorAuthService), (req, res) => {
+    const format = String(req.query.format || '').toLowerCase();
 
       if (!['csv', 'pdf'].includes(format)) {
         return res.status(400).json({ success: false, error: 'format must be one of: csv, pdf' });
@@ -300,6 +468,116 @@ function createApp(dependencies = {}) {
 
   app.use((req, res) => {
     res.status(404).json({ success: false, error: 'Endpoint not found' });
+  app.use('/api/videos', createVideoRoutes(config, database, videoWorker));
+
+  // Device fingerprinting endpoints for fraud prevention
+  if (process.env.REDIS_URL || process.env.REDIS_HOST) {
+    const deviceService = new DeviceFingerprintService(getRedisClient());
+    app.set('deviceFingerprintService', deviceService);
+    app.use('/api/device', createDeviceRoutes);
+  }
+
+  // API Documentation with Swagger UI
+  app.use('/api/docs', createSwaggerRoutes);
+
+  // Health check endpoint
+  app.get('/health', async (req, res) => {
+    const health = {
+      status: 'Healthy',
+      timestamp: new Date().toISOString(),
+      version: '1.0.0',
+      services: {
+        database: 'Unknown',
+        redis: 'Unknown',
+        rabbitmq: 'Unknown',
+        stellar: 'Unknown',
+      },
+    };
+
+    let isDegraded = false;
+
+    // Check Database
+    try {
+      database.db.prepare('SELECT 1').get();
+      health.services.database = 'Connected';
+    } catch (error) {
+      health.services.database = 'Offline';
+      isDegraded = true;
+    }
+
+    // Check Redis
+    try {
+      if (process.env.REDIS_URL || process.env.REDIS_HOST) {
+        const redisClient = getRedisClient();
+        const ping = await redisClient.ping();
+        health.services.redis = ping === 'PONG' ? 'Connected' : 'Offline';
+        if (ping !== 'PONG') isDegraded = true;
+      } else {
+        health.services.redis = 'Not Configured';
+      }
+    } catch (error) {
+      health.services.redis = 'Offline';
+      isDegraded = true;
+    }
+
+    // Check RabbitMQ
+    try {
+      if (backgroundWorker && backgroundWorker.rabbitmq) {
+        const status = backgroundWorker.getStatus();
+        health.services.rabbitmq = status.connected ? 'Connected' : 'Offline';
+        if (!status.connected) isDegraded = true;
+      } else {
+        health.services.rabbitmq = 'Not Configured';
+      }
+    } catch (error) {
+      health.services.rabbitmq = 'Offline';
+      isDegraded = true;
+    }
+
+    // Check Stellar/Soroban
+    try {
+      if (subscriptionVerifier && subscriptionVerifier.server) {
+        await subscriptionVerifier.server.getLatestLedger();
+        health.services.stellar = 'Connected';
+      } else {
+        health.services.stellar = 'Not Configured';
+      }
+    } catch (error) {
+      health.services.stellar = 'Offline';
+      isDegraded = true;
+    }
+
+    if (isDegraded) {
+      health.status = 'Degraded';
+    }
+
+    return res.status(isDegraded ? 200 : 200).json(health); // Reporting degraded status still returns 200 for status page transparency
+  });
+
+  app.use((req, res) => res.status(404).json({ success: false, error: 'Not found' }));
+  
+  // Global error handler with Sentry integration
+  app.use((err, req, res, next) => {
+    // Log error with structured logging
+    const errorContext = {
+      traceId: req.logger?.fields?.traceId,
+      method: req.method,
+      path: req.path,
+      walletAddress: req.user?.publicKey || req.body?.walletAddress,
+      endpoint: req.originalUrl,
+    };
+    
+    // Capture with Sentry
+    errorTracking.captureException(err, errorContext);
+    
+    // Return error response
+    res.status(err.statusCode || err.status || 500).json({
+      success: false,
+      error: process.env.NODE_ENV === 'production' 
+        ? 'Internal server error' 
+        : err.message,
+      ...(process.env.NODE_ENV !== 'production' && { stack: err.stack }),
+    });
   });
 
   return app;
@@ -356,3 +634,5 @@ if (require.main === module) {
 
 module.exports = app;
 module.exports.createApp = createApp;
+module.exports.createApp = createApp;
+

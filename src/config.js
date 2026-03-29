@@ -39,6 +39,63 @@ function loadConfig(env = process.env) {
       argumentMapping:
         env.SOROBAN_SUBSCRIPTION_ARGUMENTS || 'address:walletAddress,address:creatorAddress',
     },
+    transcoding: {
+      ffmpegPath: env.FFMPEG_PATH || 'ffmpeg',
+      outputDir: env.TRANSCODING_OUTPUT_DIR || './transcoded',
+      maxConcurrent: Number(env.MAX_CONCURRENT_TRANSCODINGS || 3),
+    },
+    redis: {
+      host: env.REDIS_HOST || 'localhost',
+      port: Number(env.REDIS_PORT || 6379),
+      password: env.REDIS_PASSWORD || '',
+      db: Number(env.REDIS_DB || 0),
+    },
+    s3: env.S3_BUCKET ? {
+      bucket: env.S3_BUCKET,
+      region: env.S3_REGION || 'us-east-1',
+      credentials: {
+        accessKeyId: env.S3_ACCESS_KEY_ID,
+        secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+      },
+    } : null,
+    ipfs: env.IPFS_HOST ? {
+      host: env.IPFS_HOST,
+      port: Number(env.IPFS_PORT || 5001),
+      protocol: env.IPFS_PROTOCOL || 'http',
+    } : null,
+    rabbitmq: {
+      url: env.RABBITMQ_URL || '',
+      host: env.RABBITMQ_HOST || 'localhost',
+      port: Number(env.RABBITMQ_PORT || 5672),
+      username: env.RABBITMQ_USERNAME || '',
+      password: env.RABBITMQ_PASSWORD || '',
+      vhost: env.RABBITMQ_VHOST || '/',
+      eventExchange: env.RABBITMQ_EVENT_EXCHANGE || 'substream_events',
+      eventQueue: env.RABBITMQ_EVENT_QUEUE || 'substream_events_queue',
+      notificationQueue: env.RABBITMQ_NOTIFICATION_QUEUE || 'substream_notifications_queue',
+      emailQueue: env.RABBITMQ_EMAIL_QUEUE || 'substream_emails_queue',
+      leaderboardQueue: env.RABBITMQ_LEADERBOARD_QUEUE || 'substream_leaderboard_queue',
+    },
+    substream: {
+      baseDomain: env.SUBSTREAM_BASE_DOMAIN || 'substream.app',
+      backendUrl: env.SUBSTREAM_BACKEND_URL || 'http://localhost:3000',
+      ssl: {
+        enabled: env.SUBSTREAM_SSL_ENABLED === 'true',
+        caddyConfigPath: env.SUBSTREAM_CADDY_CONFIG_PATH || '/etc/caddy/Caddyfile',
+        caddyApiUrl: env.SUBSTREAM_CADDY_API_URL || 'http://localhost:2019',
+        certsDir: env.SUBSTREAM_CERTS_DIR || '/etc/caddy/certs',
+        testMode: env.SUBSTREAM_SSL_TEST_MODE === 'true',
+        useApi: env.SUBSTREAM_CADDY_USE_API === 'true',
+      },
+    },
+    ssl: {
+      letsEncryptEmail: env.LETS_ENCRYPT_EMAIL || 'admin@substream.app',
+      caddyConfigPath: env.CADDY_CONFIG_PATH || '/etc/caddy/Caddyfile',
+      caddyApiUrl: env.CADDY_API_URL || 'http://localhost:2019',
+      certsDir: env.CERTS_DIR || '/etc/caddy/certs',
+      testMode: env.SSL_TEST_MODE === 'true',
+      useApi: env.CADDY_USE_API === 'true',
+    },
   };
 }
 

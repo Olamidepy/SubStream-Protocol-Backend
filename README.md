@@ -4,6 +4,14 @@ A comprehensive backend API for the SubStream Protocol, supporting wallet-based 
 
 ## Features
 
+### 🎥 Video Transcoding & Streaming
+- **Multi-resolution transcoding**: Automatic conversion to 360p, 720p, and 1080p
+- **HLS streaming**: Segmented video for smooth adaptive bitrate streaming
+- **Adaptive quality**: Automatic quality selection based on connection speed
+- **Background processing**: Queue-based transcoding with Redis
+- **Storage flexibility**: Support for S3 and IPFS storage
+- **Pay-per-second integration**: Seamless integration with subscription system
+
 ### 🔐 Authentication (SIWE)
 - Wallet-based authentication using Sign In With Ethereum
 - JWT token generation and validation
@@ -29,45 +37,108 @@ A comprehensive backend API for the SubStream Protocol, supporting wallet-based 
 - Database-level access control
 - Upgrade suggestions and tier management
 
+### ⚡ Asynchronous Event Processing
+- **RabbitMQ integration**: Reliable message queuing for background tasks
+- **Event-driven architecture**: Non-blocking processing of heavy operations
+- **Retry logic**: Automatic retry with exponential backoff for failed operations
+- **Circuit breaker**: Prevents cascading failures during high load
+- **Dead letter queue**: Failed message handling for debugging
+- **Background worker**: Separate process for handling emails, notifications, and leaderboard updates
+
 ## Quick Start
 
 ### Prerequisites
-- Node.js 16+
+- Node.js 20.11.0+
 - npm or yarn
+- FFmpeg (for video transcoding)
+- Redis (for job queue)
+- RabbitMQ (for asynchronous event processing)
 
 ### Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/jobbykings/SubStream-Protocol-Backend.git
+git clone https://github.com/lifewithbigdamz/SubStream-Protocol-Backend.git
 cd SubStream-Protocol-Backend
 ```
 
-2. Install dependencies:
+2. Install FFmpeg:
+```bash
+# Ubuntu/Debian
+sudo apt-get update && sudo apt-get install -y ffmpeg
+
+# macOS
+brew install ffmpeg
+
+# Windows
+# Download from https://ffmpeg.org/download.html
+```
+
+3. Install and start Redis:
+```bash
+# Ubuntu/Debian
+sudo apt-get install redis-server
+sudo systemctl start redis
+
+# macOS
+brew install redis
+brew services start redis
+
+# Windows
+# Download from https://redis.io/download
+```
+
+4. Install and start RabbitMQ:
+```bash
+# Ubuntu/Debian
+sudo apt-get install rabbitmq-server
+sudo systemctl start rabbitmq-server
+
+# macOS
+brew install rabbitmq
+brew services start rabbitmq
+
+# Windows
+# Download from https://www.rabbitmq.com/download.html
+```
+
+5. Install dependencies:
 ```bash
 npm install
 ```
 
-3. Copy environment variables:
+6. Copy environment variables:
 ```bash
 cp .env.example .env
 ```
 
-4. Configure your environment variables in `.env`:
+7. Configure your environment variables in `.env`:
 - Set your JWT secret
 - Add IPFS service API keys
-- Configure database connections (optional for development)
+- Configure Redis connection
+- Configure RabbitMQ connection
+- Set up S3 credentials (optional)
+- Configure FFmpeg path
+- Set up CDN base URL
 
-5. Start the server:
+8. Start the services:
+
+**Option 1: Start API and Worker Together**
 ```bash
-# Development
+npm run dev
+```
+
+**Option 2: Start Services Separately (Recommended for Production)**
+```bash
+# Terminal 1: Start the API server
 npm run dev
 
-# Production
-npm start
+# Terminal 2: Start the background worker
+npm run worker:dev
 ```
 
 The API will be available at `http://localhost:3000`
+The background worker will process events from RabbitMQ queues
 
 ## API Endpoints
 

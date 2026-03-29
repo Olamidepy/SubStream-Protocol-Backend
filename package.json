@@ -6,24 +6,52 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon index.js",
-    "test": "jest"
+    "worker": "node worker.js",
+    "worker:dev": "nodemon worker.js",
+    "test": "jest",
+    "migrate": "node migrations/runMigrations.js",
+    "migrate:rollback": "knex migrate:rollback",
+    "migrate:make": "knex migrate:make",
+    "migrate:list": "knex migrate:list",
+    "migrate:up": "knex migrate:up",
+    "migrate:down": "knex migrate:down",
+    "health-check": "node migrations/healthChecker.js",
+    "swagger:generate": "GENERATE_SWAGGER=true node -e \"require('./src/utils/swaggerGenerator').generateSwagger()\"",
+    "docs": "npm run swagger:generate && echo 'Documentation available at http://localhost:3000/api/docs'"
   },
   "dependencies": {
+    "@sentry/node": "^10.46.0",
     "@stellar/stellar-sdk": "^14.6.1",
-    "axios": "^1.6.2",
+    "amqplib": "^0.10.3",
+    "aws-sdk": "^2.1500.0",
+    "axios": "^1.14.0",
+    "better-sqlite3": "^12.8.0",
+    "bull": "^4.12.2",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "ethers": "^6.8.1",
     "express": "^5.2.1",
+    "fluent-ffmpeg": "^2.1.2",
     "form-data": "^4.0.0",
+    "ioredis": "^5.6.1",
     "ipfs-http-client": "^60.0.1",
+    "js-yaml": "^4.1.1",
     "jsonwebtoken": "^9.0.2",
-    "multer": "^1.4.5-lts.1",
+    "knex": "^3.2.7",
+    "multer": "^2.1.1",
+    "redis": "^5.11.0",
     "stellar-sdk": "^13.3.0",
-    "web3.storage": "^4.5.4"
+    "swagger-autogen": "^2.23.7",
+    "swagger-ui-express": "^5.0.1",
+    "uuid": "^13.0.0",
+    "web3.storage": "^4.5.4",
+    "winston": "^3.19.0"
+  },
+  "engines": {
+    "node": ">=20.11.0"
   },
   "devDependencies": {
-    "jest": "^29.7.0",
+    "jest": "^30.3.0",
     "nodemon": "^3.0.2",
     "supertest": "^7.0.0"
   }

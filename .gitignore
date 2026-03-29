@@ -4,3 +4,7 @@ node_modules
 dist
 .DS_Store
 data
+logs/
+swagger_output.json
+swagger_output.yaml
+*.log

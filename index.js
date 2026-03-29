@@ -30,13 +30,13 @@ const VideoProcessingWorker = require('./src/services/videoProcessingWorker');
 const { BackgroundWorkerService } = require('./src/services/backgroundWorkerService');
 const { GlobalStatsService } = require('./src/services/globalStatsService');
 const GlobalStatsWorker = require('./src/services/globalStatsWorker');
-const FederationService = require('./services/federationService');
-const FederationWorker = require('./src/services/federationWorker');
+const EngagementLeaderboardService = require('./services/engagementLeaderboardService');
+const LeaderboardWorker = require('./src/services/leaderboardWorker');
 const createVideoRoutes = require('./routes/video');
 const createGlobalStatsRouter = require('./routes/globalStats');
 const createDeviceRoutes = require('./routes/device');
 const createSwaggerRoutes = require('./routes/swagger');
-const createActivityPubRoutes = require('./routes/activityPub');
+const createLeaderboardRoutes = require('./routes/leaderboard');
 const { buildAuditLogCsv } = require('./src/utils/export/auditLogCsv');
 const { buildAuditLogPdf } = require('./src/utils/export/auditLogPdf');
 const { getRequestIp } = require('./src/utils/requestIp');
@@ -109,30 +109,19 @@ function createApp(dependencies = {}) {
       console.error('Failed to start AML scanner worker:', error);
     });
 
-    console.log('AML Scanner Worker initialized');
+  // Start federation worker if ActivityPub is enabled
+  if (config.activityPub?.enabled !== false) {
+    const federationWorker = dependencies.federationWorker || new FederationWorker(database, config);
+    federationWorker.start().catch(error => {
+      console.error('Failed to start federation worker:', error);
+    });
   }
 
-  // Initialize IP intelligence services if enabled
-  let ipIntelligenceService = null;
-  let ipBlockingService = null;
-  let ipMonitoringService = null;
-  let ipMiddleware = null;
-
-  if (config.ipIntelligence && config.ipIntelligence.enabled) {
-    ipIntelligenceService = dependencies.ipIntelligenceService || new IPIntelligenceService(config.ipIntelligence);
-    ipBlockingService = dependencies.ipBlockingService || new IPBlockingService(database, config.ipIntelligence);
-    ipMonitoringService = dependencies.ipMonitoringService || new IPMonitoringService(database, config.ipIntelligence);
-    ipMiddleware = new IPIntelligenceMiddleware(ipIntelligenceService, config.ipIntelligence);
-
-    // Expose services on the express app
-    app.set('ipIntelligenceService', ipIntelligenceService);
-    app.set('ipBlockingService', ipBlockingService);
-    app.set('ipMonitoringService', ipMonitoringService);
-    app.set('ipIntelligenceMiddleware', ipMiddleware);
-
-    // Start IP monitoring service
-    ipMonitoringService.start().catch(error => {
-      console.error('Failed to start IP monitoring service:', error);
+  // Start leaderboard worker if enabled
+  if (config.leaderboard?.enabled !== false) {
+    const leaderboardWorker = dependencies.leaderboardWorker || new LeaderboardWorker(config, database, getRedisClient(), EngagementLeaderboardService);
+    leaderboardWorker.start().catch(error => {
+      console.error('Failed to start leaderboard worker:', error);
     });
 
     console.log('IP Intelligence services initialized');
@@ -166,6 +155,11 @@ function createApp(dependencies = {}) {
     initialDelay: process.env.GLOBAL_STATS_INITIAL_DELAY ? parseInt(process.env.GLOBAL_STATS_INITIAL_DELAY) : 5000
   });
 
+  // Initialize leaderboard service and worker
+  const redisClient = getRedisClient();
+  const leaderboardService = dependencies.leaderboardService || new EngagementLeaderboardService(config, database, redisClient);
+  const leaderboardWorker = dependencies.leaderboardWorker || new LeaderboardWorker(config, database, redisClient, leaderboardService);
+
   // Initialize subdomain and SSL services
   const subdomainService = dependencies.subdomainService || new SubdomainService(database, config);
   const sslCertificateService = dependencies.sslCertificateService || new SslCertificateService(config);
@@ -177,6 +171,8 @@ function createApp(dependencies = {}) {
   app.set('backgroundWorker', backgroundWorker);
   app.set('globalStatsService', globalStatsService);
   app.set('globalStatsWorker', globalStatsWorker);
+  app.set('leaderboardService', leaderboardService);
+  app.set('leaderboardWorker', leaderboardWorker);
   app.set('subdomainService', subdomainService);
   app.set('sslCertificateService', sslCertificateService);
 
@@ -221,8 +217,8 @@ function createApp(dependencies = {}) {
   const createPriceRouter = require('./routes/price');
   app.use('/api/price-feed', createPriceRouter());
 
-  // ActivityPub federation endpoints
-  app.use('/', createActivityPubRoutes());
+  // Engagement leaderboard endpoints
+  app.use('/api/leaderboard', createLeaderboardRoutes());
 
   app.use((req, res, next) => {
     req.config = config;

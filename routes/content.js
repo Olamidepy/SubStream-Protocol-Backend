@@ -8,7 +8,7 @@ router.get('/:contentId', authenticateToken, (req, res) => {
   try {
     const { contentId } = req.params;
     const content = contentService.getContent(contentId, req.user.address);
-    
+
     res.json({
       success: true,
       content
@@ -34,7 +34,7 @@ router.get('/', authenticateToken, (req, res) => {
     };
 
     const contentList = contentService.listContent(req.user.address, filters);
-    
+
     res.json({
       success: true,
       content: contentList,
@@ -52,7 +52,7 @@ router.get('/', authenticateToken, (req, res) => {
 });
 
 // Create new content (creator only)
-router.post('/', authenticateToken, requireTier('bronze'), (req, res) => {
+router.post('/', authenticateToken, requireTier('bronze'), async (req, res) => {
   try {
     const {
       title,
@@ -61,7 +61,8 @@ router.post('/', authenticateToken, requireTier('bronze'), (req, res) => {
       thumbnail,
       duration,
       price,
-      tags
+      tags,
+      federate = true // Allow creators to opt-out of federation
     } = req.body;
 
     if (!title || !description) {
@@ -80,6 +81,16 @@ router.post('/', authenticateToken, requireTier('bronze'), (req, res) => {
       price,
       tags: tags || []
     }, req.user.address);
+
+    // Queue content for ActivityPub federation if enabled
+    if (federate && req.app.get('federationService')) {
+      try {
+        await req.app.get('federationService').queueContentForFederation(content);
+      } catch (federationError) {
+        // Log error but don't fail content creation
+        console.error('Federation queue error:', federationError);
+      }
+    }
 
     res.status(201).json({
       success: true,
@@ -106,7 +117,7 @@ router.put('/:contentId', authenticateToken, (req, res) => {
     delete updates.createdAt;
 
     const updatedContent = contentService.updateContent(contentId, updates, req.user.address);
-    
+
     res.json({
       success: true,
       content: updatedContent
@@ -125,9 +136,9 @@ router.put('/:contentId', authenticateToken, (req, res) => {
 router.delete('/:contentId', authenticateToken, (req, res) => {
   try {
     const { contentId } = req.params;
-    
+
     contentService.deleteContent(contentId, req.user.address);
-    
+
     res.json({
       success: true,
       message: 'Content deleted successfully'
@@ -147,7 +158,7 @@ router.get('/:contentId/access', authenticateToken, (req, res) => {
   try {
     const { contentId } = req.params;
     const canAccess = contentService.canAccessContent(contentId, req.user.address);
-    
+
     res.json({
       success: true,
       contentId,
@@ -169,7 +180,7 @@ router.get('/creator/:creatorAddress/stats', authenticateToken, (req, res) => {
   try {
     const { creatorAddress } = req.params;
     const stats = contentService.getCreatorStats(creatorAddress, req.user.address);
-    
+
     res.json({
       success: true,
       creatorAddress,
@@ -189,7 +200,7 @@ router.get('/creator/:creatorAddress/stats', authenticateToken, (req, res) => {
 router.get('/upgrade/suggestions', authenticateToken, (req, res) => {
   try {
     const suggestions = contentService.getUpgradeSuggestions(req.user.address);
-    
+
     res.json({
       success: true,
       suggestions
@@ -208,7 +219,7 @@ router.get('/upgrade/suggestions', authenticateToken, (req, res) => {
 router.get('/tier/:tierName', authenticateToken, (req, res) => {
   try {
     const { tierName } = req.params;
-    
+
     // Validate tier name
     const validTiers = ['bronze', 'silver', 'gold'];
     if (!validTiers.includes(tierName)) {
@@ -224,7 +235,7 @@ router.get('/tier/:tierName', authenticateToken, (req, res) => {
     };
 
     const contentList = contentService.listContent(req.user.address, filters);
-    
+
     res.json({
       success: true,
       tier: tierName,
@@ -245,7 +256,7 @@ router.get('/tier/:tierName', authenticateToken, (req, res) => {
 router.post('/search', authenticateToken, (req, res) => {
   try {
     const { query, filters = {} } = req.body;
-    
+
     if (!query) {
       return res.status(400).json({
         success: false,
@@ -259,7 +270,7 @@ router.post('/search', authenticateToken, (req, res) => {
     };
 
     const results = contentService.listContent(req.user.address, searchFilters);
-    
+
     res.json({
       success: true,
       query,
@@ -281,7 +292,7 @@ router.get('/user/summary', authenticateToken, (req, res) => {
   try {
     const userTier = contentService.getUserTier(req.user.address);
     const allContent = contentService.listContent(req.user.address);
-    
+
     const summary = {
       userTier,
       totalContent: allContent.length,

@@ -30,17 +30,13 @@ const VideoProcessingWorker = require('./src/services/videoProcessingWorker');
 const { BackgroundWorkerService } = require('./src/services/backgroundWorkerService');
 const { GlobalStatsService } = require('./src/services/globalStatsService');
 const GlobalStatsWorker = require('./src/services/globalStatsWorker');
-const { AMLScannerWorker } = require('./src/services/amlScannerWorker');
-const { IPIntelligenceService } = require('./src/services/ipIntelligenceService');
-const { IPBlockingService } = require('./src/services/ipBlockingService');
-const { IPMonitoringService } = require('./src/services/ipMonitoringService');
-const { IPIntelligenceMiddleware } = require('./src/middleware/ipIntelligenceMiddleware');
+const FederationService = require('./services/federationService');
+const FederationWorker = require('./src/services/federationWorker');
 const createVideoRoutes = require('./routes/video');
 const createGlobalStatsRouter = require('./routes/globalStats');
 const createDeviceRoutes = require('./routes/device');
 const createSwaggerRoutes = require('./routes/swagger');
-const { createIPIntelligenceRoutes } = require('./routes/ipIntelligence');
-const { createBehavioralBiometricRoutes } = require('./routes/behavioralBiometric');
+const createActivityPubRoutes = require('./routes/activityPub');
 const { buildAuditLogCsv } = require('./src/utils/export/auditLogCsv');
 const { buildAuditLogPdf } = require('./src/utils/export/auditLogPdf');
 const { getRequestIp } = require('./src/utils/requestIp');
@@ -90,10 +86,18 @@ function createApp(dependencies = {}) {
   // Initialize background worker service for async processing
   const backgroundWorker = dependencies.backgroundWorker || new BackgroundWorkerService(config.rabbitmq);
 
+  // Initialize federation service for ActivityPub integration
+  const federationService = dependencies.federationService || new FederationService(config, database, backgroundWorker);
+
+  // Initialize federation worker for background processing
+  const federationWorker = dependencies.federationWorker || new FederationWorker(config, database, federationService);
+
   // expose the service on the express app so external routers can access it
   app.set('subscriptionService', subscriptionService);
   app.set('subscriptionExpiryChecker', subscriptionExpiryChecker);
   app.set('backgroundWorker', backgroundWorker);
+  app.set('federationService', federationService);
+  app.set('federationWorker', federationWorker);
 
   // Initialize and start AML scanner if enabled
   let amlScannerWorker = null;
@@ -191,12 +195,16 @@ function createApp(dependencies = {}) {
     console.error('Failed to start global stats worker:', error);
   });
 
+  // Start federation worker if ActivityPub is enabled
+  if (config.activityPub?.enabled !== false) {
+    federationWorker.start().catch(error => {
+      console.error('Failed to start federation worker:', error);
+    });
+  }
+
   app.use(cors());
   app.use(express.json());
 
-  // Add request tracing middleware for structured logging
-  app.use(requestTracingMiddleware);
-  
 
   // Subscription events webhook
   app.use('/api/subscription', require('./routes/subscription'));
@@ -205,13 +213,16 @@ function createApp(dependencies = {}) {
 
   // Global stats endpoints
   app.use('/api/global-stats', createGlobalStatsRouter({ database, globalStatsService }));
-  
+
   // Subdomain management endpoints
   app.use('/api/subdomains', createSubdomainRoutes({ database, config, subdomainService, sslCertificateService }));
 
   // Price feed endpoints
   const createPriceRouter = require('./routes/price');
   app.use('/api/price-feed', createPriceRouter());
+
+  // ActivityPub federation endpoints
+  app.use('/', createActivityPubRoutes());
 
   app.use((req, res, next) => {
     req.config = config;

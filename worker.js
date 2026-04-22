@@ -2,6 +2,7 @@
 
 const { loadConfig } = require('./src/config');
 const { BackgroundWorkerService } = require('./src/services/backgroundWorkerService');
+const { SorobanIndexerWorker } = require('./src/services/sorobanIndexerWorker');
 
 /**
  * Standalone background worker process
@@ -54,21 +55,46 @@ async function startWorker() {
   }
 }
 
-// Health check endpoint for monitoring
-if (process.argv.includes('--health')) {
-  const config = loadConfig();
-  const worker = new BackgroundWorkerService(config.rabbitmq);
+// Check which worker to start based on command line arguments
+const args = process.argv.slice(2);
+
+if (args.includes('--soroban')) {
+  // Start Soroban indexer worker
+  const sorobanWorker = new SorobanIndexerWorker();
   
-  worker.start()
-    .then(() => {
-      const status = worker.getStatus();
-      console.log(JSON.stringify(status, null, 2));
-      process.exit(status.isRunning && status.connected ? 0 : 1);
-    })
-    .catch((error) => {
-      console.error('Health check failed:', error);
+  if (args.includes('--health')) {
+    sorobanWorker.healthCheck()
+      .then(health => {
+        console.log(JSON.stringify(health, null, 2));
+        process.exit(health.healthy ? 0 : 1);
+      })
+      .catch((error) => {
+        console.error('Soroban worker health check failed:', error);
+        process.exit(1);
+      });
+  } else {
+    sorobanWorker.start().catch(error => {
+      console.error('Failed to start Soroban worker:', error);
       process.exit(1);
     });
+  }
 } else {
-  startWorker();
+  // Health check endpoint for monitoring
+  if (args.includes('--health')) {
+    const config = loadConfig();
+    const worker = new BackgroundWorkerService(config.rabbitmq);
+    
+    worker.start()
+      .then(() => {
+        const status = worker.getStatus();
+        console.log(JSON.stringify(status, null, 2));
+        process.exit(status.isRunning && status.connected ? 0 : 1);
+      })
+      .catch((error) => {
+        console.error('Health check failed:', error);
+        process.exit(1);
+      });
+  } else {
+    startWorker();
+  }
 }

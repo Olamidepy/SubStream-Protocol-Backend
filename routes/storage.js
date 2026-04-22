@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const storageService = require('../services/storageService');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken } = require('../middleware/unifiedAuth');
 
 // Configure multer for file uploads
 const upload = multer({

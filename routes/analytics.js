@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const analyticsService = require('../services/analyticsService');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, getUserId } = require('../middleware/unifiedAuth');
 
 // Get global platform statistics (cached for performance)
 router.get('/global', async (req, res) => {

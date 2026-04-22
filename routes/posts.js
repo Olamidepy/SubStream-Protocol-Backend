@@ -1,12 +1,12 @@
 const express = require('express');
 const router = express.Router();
 const postService = require('../services/postService');
-const { authenticateToken, requireTier } = require('../middleware/auth');
+const { authenticateToken, requireTierUnified, getUserId } = require('../middleware/unifiedAuth');
 
 // Get all posts
 router.get('/', authenticateToken, (req, res) => {
   try {
-    const posts = postService.getAllPosts(req.user.address);
+    const posts = postService.getAllPosts(getUserId(req.user));
     
     res.json({
       success: true,

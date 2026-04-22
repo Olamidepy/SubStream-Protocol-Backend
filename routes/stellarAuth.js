@@ -16,9 +16,9 @@ const stellarService = new StellarAuthService();
 
 /**
  * Generate SEP-10 challenge for Stellar authentication
- * GET /auth/stellar/challenge?publicKey=...
+ * GET /auth/challenge?publicKey=...
  */
-router.get('/stellar/challenge', async (req, res) => {
+router.get('/challenge', async (req, res) => {
   try {
     const { publicKey } = req.query;
     
@@ -58,9 +58,9 @@ router.get('/stellar/challenge', async (req, res) => {
 
 /**
  * Verify SEP-10 challenge and authenticate
- * POST /auth/stellar/login
+ * POST /auth/verify
  */
-router.post('/stellar/login', async (req, res) => {
+router.post('/verify', async (req, res) => {
   try {
     const { publicKey, challengeXDR } = req.body;
     

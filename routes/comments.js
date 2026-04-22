@@ -3,7 +3,7 @@ const { AppDatabase } = require('../src/db/appDatabase');
 const { loadConfig } = require('../src/config');
 const { SorobanSubscriptionVerifier } = require('../src/services/sorobanSubscriptionVerifier');
 const { CommentService } = require('../services/commentService');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, getUserId } = require('../middleware/unifiedAuth');
 
 // Initialize services
 const config = loadConfig();

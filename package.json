@@ -24,7 +24,7 @@
     "@stellar/stellar-sdk": "^15.0.1",
     "amqplib": "^1.0.3",
     "aws-sdk": "^2.1500.0",
-    "axios": "^1.15.1",
+    "axios": "^1.15.2",
     "better-sqlite3": "^12.9.0",
     "bull": "^4.12.2",
     "cors": "^2.8.6",

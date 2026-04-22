@@ -1,5 +1,6 @@
 const { SorobanRpcService } = require('./sorobanRpcService');
 const { SorobanXdrParser } = require('../utils/sorobanXdrParser');
+const { SorobanDeadLetterQueue } = require('./sorobanDeadLetterQueue');
 const { AppDatabase } = require('../db/appDatabase');
 
 /**
@@ -17,8 +18,18 @@ class SorobanEventIndexer {
     this.rpcService = new SorobanRpcService(config.soroban, this.logger);
     this.xdrParser = new SorobanXdrParser(this.logger);
     
+    // DLQ integration
+    this.dlqService = dependencies.dlqService || new SorobanDeadLetterQueue(config, {
+      logger: this.logger,
+      database: this.database,
+      alertService: dependencies.alertService || null
+    });
+    
     // Pub/Sub integration
     this.eventPublisher = dependencies.eventPublisher || null;
+    
+    // Retry configuration
+    this.maxRetries = config.maxRetries || 3;
     
     // Indexer state
     this.isRunning = false;
@@ -34,6 +45,9 @@ class SorobanEventIndexer {
       eventsProcessed: 0,
       eventsFailed: 0,
       duplicatesSkipped: 0,
+      dlqItemsAdded: 0,
+      dlqItemsRetried: 0,
+      dlqItemsResolved: 0,
       ledgersProcessed: 0,
       startTime: null,
       lastEventTime: null
@@ -52,6 +66,9 @@ class SorobanEventIndexer {
     try {
       // Initialize ingestion state
       await this.initializeIngestionState();
+      
+      // Initialize DLQ service
+      await this.dlqService.initialize();
       
       // Start the main indexing loop
       this.isRunning = true;
@@ -196,20 +213,16 @@ class SorobanEventIndexer {
   }
 
   /**
-   * Process a single event with idempotent ingestion
+   * Process a single event with idempotent ingestion and DLQ retry logic
    */
-  async processEvent(event) {
+  async processEvent(event, retryCount = 0) {
     try {
       // Parse the event
       const parsedEvent = this.xdrParser.parseEvent(event);
       
       if (!parsedEvent.isValid) {
-        this.logger.warn('Skipping invalid event', {
-          eventId: event.id,
-          error: parsedEvent.error
-        });
-        this.stats.eventsFailed++;
-        return false;
+        const error = new Error(parsedEvent.error || 'Invalid event format');
+        return await this.handleEventFailure(event, error, retryCount, 'xdr_parsing');
       }
       
       // Check if this is an event type we care about
@@ -220,13 +233,8 @@ class SorobanEventIndexer {
       // Validate parsed data
       const validation = this.xdrParser.validateEventData(parsedEvent);
       if (!validation.isValid) {
-        this.logger.warn('Skipping event with invalid data', {
-          eventId: event.id,
-          eventType: parsedEvent.type,
-          errors: validation.errors
-        });
-        this.stats.eventsFailed++;
-        return false;
+        const error = new Error(`Validation failed: ${validation.errors.join(', ')}`);
+        return await this.handleEventFailure(event, error, retryCount, 'validation');
       }
       
       // Check for duplicates using idempotent constraint
@@ -262,12 +270,81 @@ class SorobanEventIndexer {
       return true;
       
     } catch (error) {
-      this.logger.error('Failed to process event', {
+      return await this.handleEventFailure(event, error, retryCount, 'processing');
+    }
+  }
+
+  /**
+   * Handle event processing failure with DLQ integration
+   */
+  async handleEventFailure(event, error, retryCount, errorCategory) {
+    this.logger.warn('Event processing failed', {
+      eventId: event.id,
+      transactionHash: event.transactionHash,
+      errorCategory,
+      retryCount,
+      error: error.message
+    });
+
+    // Increment failure count
+    this.stats.eventsFailed++;
+
+    // Check if we should retry or send to DLQ
+    if (retryCount < this.maxRetries) {
+      this.logger.info('Retrying event processing', {
         eventId: event.id,
+        retryCount: retryCount + 1,
+        maxRetries: this.maxRetries
+      });
+
+      // Retry after a delay
+      await this.sleep(Math.min(1000 * Math.pow(2, retryCount), 10000));
+      
+      try {
+        return await this.processEvent(event, retryCount + 1);
+      } catch (retryError) {
+        // If retry fails, continue to DLQ
+        return await this.handleEventFailure(event, retryError, retryCount + 1, errorCategory);
+      }
+    } else {
+      // Max retries exceeded, send to DLQ
+      this.logger.error('Event processing failed after max retries, sending to DLQ', {
+        eventId: event.id,
+        transactionHash: event.transactionHash,
+        retryCount,
+        errorCategory,
         error: error.message
       });
-      this.stats.eventsFailed++;
-      return false;
+
+      try {
+        const dlqResult = await this.dlqService.addFailedEvent(event, error, retryCount + 1);
+        
+        if (dlqResult.success) {
+          this.stats.dlqItemsAdded++;
+          this.logger.info('Event added to DLQ', {
+            eventId: event.id,
+            dlqId: dlqResult.dlqId,
+            willRetry: dlqResult.willRetry
+          });
+        } else {
+          this.logger.error('Failed to add event to DLQ', {
+            eventId: event.id,
+            error: dlqResult.queueError || 'Unknown error'
+          });
+        }
+        
+        return false;
+        
+      } catch (dlqError) {
+        this.logger.error('Critical error: Failed to add event to DLQ', {
+          eventId: event.id,
+          error: dlqError.message,
+          originalError: error.message
+        });
+        
+        // Even if DLQ fails, we need to advance the ledger to prevent infinite loops
+        return false;
+      }
     }
   }
 
@@ -468,6 +545,54 @@ class SorobanEventIndexer {
         healthy: false,
         error: error.message,
         indexer: this.getStats()
+      };
+    }
+  }
+
+  /**
+   * Reprocess event from DLQ
+   */
+  async reprocessEvent(dlqItem) {
+    try {
+      this.logger.info('Reprocessing DLQ event', {
+        dlqId: dlqItem.id,
+        transactionHash: dlqItem.transaction_hash,
+        eventIndex: dlqItem.event_index
+      });
+
+      // Reconstruct the original event from the stored payload
+      const event = {
+        ...dlqItem.raw_event_payload,
+        id: dlqItem.id
+      };
+
+      // Process the event again
+      const result = await this.processEvent(event, 0);
+      
+      if (result) {
+        this.stats.dlqItemsResolved++;
+        this.logger.info('DLQ event successfully reprocessed', {
+          dlqId: dlqItem.id,
+          transactionHash: dlqItem.transaction_hash
+        });
+        
+        return { success: true };
+      } else {
+        return { 
+          success: false, 
+          error: 'Event processing returned false during reprocessing' 
+        };
+      }
+      
+    } catch (error) {
+      this.logger.error('Failed to reprocess DLQ event', {
+        dlqId: dlqItem.id,
+        error: error.message
+      });
+      
+      return { 
+        success: false, 
+        error: error.message 
       };
     }
   }

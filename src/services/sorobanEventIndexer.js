@@ -38,7 +38,7 @@ class SorobanEventIndexer {
     this.processingInterval = config.processingInterval || 5000; // 5 seconds
     
     // Event types to track
-    this.eventTypes = ['SubscriptionBilled', 'TrialStarted', 'PaymentFailed'];
+    this.eventTypes = ['SubscriptionBilled', 'TrialStarted', 'PaymentFailed', 'PaymentFailedGracePeriodStarted'];
     
     // Statistics
     this.stats = {

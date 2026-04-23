@@ -44,6 +44,7 @@ const { buildAuditLogPdf } = require('./src/utils/export/auditLogPdf');
 const { getRequestIp } = require('./src/utils/requestIp');
 const { getRedisClient, closeRedisClient } = require('./src/config/redis');
 const { createRateLimiter } = require('./middleware/rateLimiter');
+const createPrivacyRoutes = require('./routes/privacy');
 
 
 // Tier middleware — attaches req.user.tier to every request
@@ -244,6 +245,9 @@ function createApp(dependencies = {}) {
 
   // Creator collaboration endpoints
   app.use('/api/collaborations', createCollaborationRoutes());
+
+  // Privacy preference endpoints
+  app.use('/api/v1/users', createPrivacyRoutes({ database }));
 
   // Subdomain management endpoints
   app.use('/api/subdomains', createSubdomainRoutes({ database, config, subdomainService, sslCertificateService }));

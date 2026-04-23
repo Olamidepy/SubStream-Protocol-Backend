@@ -30,6 +30,18 @@ class BackgroundWorkerService {
     this.notificationService = dependencies.notificationService || null;
     this.leaderboardService = dependencies.leaderboardService || null;
     this.analyticsService = dependencies.analyticsService || null;
+    
+    // Initialize new services for protocol enhancements
+    const { DunningService } = require('./dunningService');
+    const { InvoiceService } = require('./invoiceService');
+    const { WebhookDispatcher } = require('./webhookDispatcher');
+    const { PrivacyService } = require('./privacyService');
+    
+    const db = dependencies.database || null;
+    this.webhookDispatcher = dependencies.webhookDispatcher || new WebhookDispatcher(db);
+    this.dunningService = dependencies.dunningService || new DunningService(db, this.notificationService, this.webhookDispatcher);
+    this.invoiceService = dependencies.invoiceService || new InvoiceService(config.invoice || { s3: {} });
+    this.privacyService = dependencies.privacyService || new PrivacyService(db);
   }
 
   /**
@@ -138,9 +150,6 @@ class BackgroundWorkerService {
     console.log('All message processors setup completed');
   }
 
-  /**
-   * Process subscription events
-   */
   async processSubscriptionEvent(event) {
     console.log('Processing subscription event:', event.id, event.type);
 
@@ -171,6 +180,46 @@ class BackgroundWorkerService {
           timestamp: event.timestamp,
         });
       }
+      // ── Protocol Enhancements Integration ──────────────────────────────────────
+      
+      // 1. Dunning Management (#143)
+      if (event.type === 'PaymentFailedGracePeriodStarted') {
+        await this.dunningService.handlePaymentFailed(event);
+      } else if (event.type === 'SubscriptionBilled') {
+        await this.dunningService.handleSubscriptionBilled(event);
+      }
+
+      // 2. PDF Invoice Generation (#144)
+      if (event.type === 'SubscriptionBilled') {
+        const invoiceData = {
+          invoiceId: `INV-${Date.now()}`,
+          creatorId: event.creatorId,
+          walletAddress: event.walletAddress,
+          amount: event.amount,
+          currency: event.currency || 'XLM',
+          timestamp: event.timestamp || new Date().toISOString(),
+          transactionHash: event.transactionHash
+        };
+        const invoiceResult = await this.invoiceService.generateInvoice(invoiceData);
+        
+        // Add invoice URL to event for webhook
+        event.invoiceUrl = invoiceResult.url;
+      }
+
+      // 3. Redis Caching Invalidation (#146)
+      if (event.type === 'SubscriptionBilled' || event.type === 'SubscriptionCanceled') {
+        if (this.analyticsService && this.analyticsService.invalidateAnalytics) {
+          await this.analyticsService.invalidateAnalytics(event.creatorId);
+        }
+      }
+
+      // 4. Webhook Dispatch with Privacy Scrubbing (#145)
+      await this.webhookDispatcher.dispatch(
+        event.creatorId,
+        event.walletAddress,
+        `subscription.${event.type.toLowerCase()}`,
+        event
+      );
 
       console.log(`Successfully processed subscription event: ${event.id}`);
     } catch (error) {

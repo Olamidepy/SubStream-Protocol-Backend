@@ -12,7 +12,8 @@ class SorobanXdrParser {
     this.eventTypes = {
       SubscriptionBilled: 'SubscriptionBilled',
       TrialStarted: 'TrialStarted', 
-      PaymentFailed: 'PaymentFailed'
+      PaymentFailed: 'PaymentFailed',
+      PaymentFailedGracePeriodStarted: 'PaymentFailedGracePeriodStarted'
     };
   }
 
@@ -158,10 +159,35 @@ class SorobanXdrParser {
         return this.parseTrialStartedEvent(scVal);
       case 'PaymentFailed':
         return this.parsePaymentFailedEvent(scVal);
+      case 'PaymentFailedGracePeriodStarted':
+        return this.parsePaymentFailedGracePeriodStartedEvent(scVal);
       default:
         return this.parseGenericEvent(scVal);
     }
+}
+
+/**
+ * Parse PaymentFailedGracePeriodStarted event
+ */
+parsePaymentFailedGracePeriodStartedEvent(scVal) {
+  try {
+    const data = this.extractEventFields(scVal);
+    
+    return {
+      eventType: 'PaymentFailedGracePeriodStarted',
+      subscriberAddress: data.subscriber_address || data.wallet_address || data.address,
+      creatorAddress: data.creator_address || data.creator,
+      gracePeriodDuration: this.parseDuration(data.grace_period_duration || data.duration),
+      gracePeriodEndDate: this.parseTimestamp(data.grace_period_end_date || data.end_date),
+      amount: this.parseAmount(data.amount),
+      currency: data.currency || 'XLM',
+      subscriptionId: data.subscription_id || data.id,
+      metadata: data.metadata || {}
+    };
+  } catch (error) {
+    throw new Error(`Failed to parse PaymentFailedGracePeriodStarted event: ${error.message}`);
   }
+}
 
   /**
    * Parse SubscriptionBilled event

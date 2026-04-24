@@ -59,11 +59,20 @@ class AppDatabase {
     /**
      * @param {string} filename SQLite filename or `:memory:`.
      */
-    constructor(filename) {
-      this.filename = filename;
-      this.ensureDirectory();
-      this.db = new Database(filename);
-      this.db.exec(`
+  constructor(filename) {
+    this.filename = filename;
+    this.ensureDirectory();
+    this.db = new Database(filename);
+    this.initializeSchema();
+    this.ensureSubscriberCountColumn();
+    this.ensureWebhookColumns();
+    this.ensureSubscriptionRiskColumns();
+  }
+
+  /**
+   * Initialize the database schema
+   */
+  initializeSchema() {
       PRAGMA foreign_keys = ON;
 
       CREATE TABLE IF NOT EXISTS creators (
@@ -212,6 +221,26 @@ class AppDatabase {
     }
 
     /**
+     * Ensure the creators table has webhook columns.
+     */
+    ensureWebhookColumns() {
+      try {
+        const info = this.db.prepare('PRAGMA table_info(creators);').all();
+        const hasUrl = info.some((col) => col.name === 'webhook_url');
+        const hasSecret = info.some((col) => col.name === 'webhook_secret');
+        
+        if (!hasUrl) {
+          this.db.exec('ALTER TABLE creators ADD COLUMN webhook_url TEXT');
+        }
+        if (!hasSecret) {
+          this.db.exec('ALTER TABLE creators ADD COLUMN webhook_secret TEXT');
+        }
+      } catch (error) {
+        console.warn('ensureWebhookColumns failed:', error.message);
+      }
+    }
+
+    /**
      * Ensure subscriptions table has fields used by low-balance risk checks.
      *
      * @returns {void}
@@ -288,13 +317,37 @@ class AppDatabase {
      *
      * @param {string} creatorId Creator identifier.
      */
-    ensureCreator(creatorId) {
-      this.db
-        .prepare(
-          'INSERT INTO creators (id, created_at) VALUES (?, ?) ON CONFLICT(id) DO NOTHING',
-        )
-        .run(creatorId, new Date().toISOString());
-    }
+  ensureCreator(creatorId) {
+    this.db
+      .prepare(
+        'INSERT INTO creators (id, created_at) VALUES (?, ?) ON CONFLICT(id) DO NOTHING',
+      )
+      .run(creatorId, new Date().toISOString());
+  }
+
+  /**
+   * Get creator information
+   * @param {string} creatorId 
+   * @returns {object|null}
+   */
+  getCreator(creatorId) {
+    return this.db
+      .prepare('SELECT * FROM creators WHERE id = ?')
+      .get(creatorId);
+  }
+
+  /**
+   * Update creator webhook settings
+   * @param {string} creatorId 
+   * @param {string} url 
+   * @param {string} secret 
+   */
+  updateCreatorWebhook(creatorId, url, secret) {
+    this.ensureCreator(creatorId);
+    this.db
+      .prepare('UPDATE creators SET webhook_url = ?, webhook_secret = ? WHERE id = ?')
+      .run(url, secret, creatorId);
+  }
 
     /**
      * Seed a video for tests or local setup.
@@ -1172,6 +1225,161 @@ getCreatorSubscriberCount(creatorId) {
     .get(creatorId);
 
   return row.count || 0;
+}
+
+/**
+ * Get privacy preferences for a wallet address
+ * @param {string} walletAddress
+ * @returns {object|null}
+ */
+getPrivacyPreferences(walletAddress) {
+  const row = this.db
+    .prepare(
+      `
+        SELECT wallet_address, share_email_with_merchants, allow_marketing, updated_at
+        FROM privacy_preferences
+        WHERE wallet_address = ?
+      `,
+    )
+    .get(walletAddress);
+
+  if (!row) return null;
+
+  return {
+    ...row,
+    share_email_with_merchants: Boolean(row.share_email_with_merchants),
+    allow_marketing: Boolean(row.allow_marketing),
+  };
+}
+
+/**
+ * Create or update privacy preferences
+ * @param {string} walletAddress
+ * @param {object} preferences
+ * @returns {object}
+ */
+upsertPrivacyPreferences(walletAddress, preferences) {
+  const now = new Date().toISOString();
+  
+  // Use INSERT OR REPLACE or similar depending on DB
+  // For better-sqlite3:
+  this.db
+    .prepare(
+      `
+        INSERT INTO privacy_preferences (
+          wallet_address, share_email_with_merchants, allow_marketing, updated_at
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(wallet_address) DO UPDATE SET
+          share_email_with_merchants = excluded.share_email_with_merchants,
+          allow_marketing = excluded.allow_marketing,
+          updated_at = excluded.updated_at
+      `,
+    )
+    .run(
+      walletAddress,
+      preferences.share_email_with_merchants !== undefined ? (preferences.share_email_with_merchants ? 1 : 0) : 1,
+      preferences.allow_marketing !== undefined ? (preferences.allow_marketing ? 1 : 0) : 1,
+      now
+    );
+
+  return this.getPrivacyPreferences(walletAddress);
+}
+
+/**
+ * Create a new dunning sequence
+ * @param {object} sequence
+ */
+createDunningSequence(sequence) {
+  this.db
+    .prepare(
+      `
+        INSERT INTO dunning_sequences (
+          id, wallet_address, creator_id, status, current_day,
+          last_notified_at, next_notification_at, started_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `,
+    )
+    .run(
+      sequence.id,
+      sequence.wallet_address,
+      sequence.creator_id,
+      sequence.status,
+      sequence.current_day,
+      new Date().toISOString(),
+      sequence.next_notification_at,
+      new Date().toISOString(),
+      new Date().toISOString()
+    );
+}
+
+/**
+ * Get active dunning sequences that need notification
+ * @returns {object[]}
+ */
+getActiveDunningSequences() {
+  return this.db
+    .prepare(
+      `
+        SELECT * FROM dunning_sequences
+        WHERE status = 'active' AND next_notification_at <= ?
+      `,
+    )
+    .all(new Date().toISOString());
+}
+
+/**
+ * Update a dunning sequence
+ * @param {string} id
+ * @param {object} updates
+ */
+updateDunningSequence(id, updates) {
+  const fields = Object.keys(updates);
+  const values = Object.values(updates);
+  const setClause = fields.map(f => `${f} = ?`).join(', ');
+  
+  this.db
+    .prepare(`UPDATE dunning_sequences SET ${setClause}, updated_at = ? WHERE id = ?`)
+    .run(...values, new Date().toISOString(), id);
+}
+
+/**
+ * Halt an active dunning sequence
+ * @param {string} walletAddress
+ * @param {string} creatorId
+ */
+haltDunningSequence(walletAddress, creatorId) {
+  this.db
+    .prepare(
+      `
+        UPDATE dunning_sequences
+        SET status = 'halted', updated_at = ?
+        WHERE wallet_address = ? AND creator_id = ? AND status = 'active'
+      `,
+    )
+    .run(new Date().toISOString(), walletAddress, creatorId);
+}
+
+/**
+ * Record dunning event history
+ * @param {object} history
+ */
+recordDunningHistory(history) {
+  this.db
+    .prepare(
+      `
+        INSERT INTO dunning_history (
+          id, sequence_id, event_type, occurred_at, status, metadata_json
+        ) VALUES (?, ?, ?, ?, ?, ?)
+      `,
+    )
+    .run(
+      history.id,
+      history.sequence_id,
+      history.event_type,
+      new Date().toISOString(),
+      history.status,
+      JSON.stringify(history.metadata_json || {})
+    );
 }
 }
 

@@ -2,6 +2,7 @@
 // Utilizes advanced indexing for <100ms fan list queries regardless of size
 
 const { Pool } = require('pg');
+const cacheManager = require('../utils/cache');
 
 class PostgresSubscriberDB {
     constructor(connectionString) {
@@ -330,6 +331,42 @@ class PostgresSubscriberDB {
         } finally {
             client.release();
         }
+    }
+
+    /**
+     * Get MRR (Monthly Recurring Revenue) analytics for a creator
+     * Cached for 15 minutes to protect DB
+     */
+    async getMRRAnalytics(creatorId) {
+        const cacheKey = `analytics:${creatorId}:mrr`;
+        
+        return await cacheManager.wrap(cacheKey, async () => {
+            const client = await this.pool.connect();
+            try {
+                // Complex analytical query summing flow rates for active subscriptions
+                const result = await client.query(`
+                    SELECT 
+                        SUM(CAST(cs.flow_rate AS DECIMAL)) as total_mrr,
+                        COUNT(s.wallet_address) as active_subscribers,
+                        cs.currency
+                    FROM subscriptions s
+                    JOIN creator_settings cs ON s.creator_id = cs.creator_id
+                    WHERE s.creator_id = $1 AND s.active = 1
+                    GROUP BY cs.currency
+                `, [creatorId]);
+                
+                return result.rows[0] || { total_mrr: 0, active_subscribers: 0, currency: 'XLM' };
+            } finally {
+                client.release();
+            }
+        }, 900); // 15 minute TTL
+    }
+
+    /**
+     * Invalidate analytics cache for a creator
+     */
+    async invalidateAnalytics(creatorId) {
+        await cacheManager.invalidateCreatorAnalytics(creatorId);
     }
 
     /**

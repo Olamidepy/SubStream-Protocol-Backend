@@ -5,6 +5,10 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "start:ws": "nest start",
+    "start:ws:dev": "nest start --watch",
+    "start:ws:debug": "nest start --debug --watch",
+    "start:ws:prod": "node dist/main",
     "dev": "nodemon index.js",
     "worker": "node worker.js",
     "worker:dev": "nodemon worker.js",
@@ -34,6 +38,10 @@
     "axios": "^1.15.2",
     "better-sqlite3": "^12.9.0",
     "bull": "^4.12.2",
+    "archiver": "^6.0.1",
+    "bcrypt": "^6.0.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
     "cors": "^2.8.6",
     "dataloader": "^2.2.2",
     "dotenv": "^17.4.2",
@@ -62,8 +70,16 @@
     "node": ">=20.11.0"
   },
   "devDependencies": {
+    "@nestjs/cli": "^11.0.21",
+    "@types/bcrypt": "^6.0.0",
+    "@types/jest": "^29.5.0",
+    "@types/passport": "^1.0.17",
+    "@types/passport-jwt": "^4.0.1",
     "jest": "^30.3.0",
     "nodemon": "^3.0.2",
-    "supertest": "^7.0.0"
+    "socket.io-client": "^4.8.3",
+    "supertest": "^7.0.0",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0"
   }
 }

@@ -16,6 +16,17 @@ spec:
     metadata:
       annotations:
         {{- toYaml .Values.podAnnotations | nindent 8 }}
+        {{- if .Values.vault.enabled }}
+        # Vault sidecar injector annotations
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/agent-inject-status: "update"
+        vault.hashicorp.com/role: "{{ .Values.vault.role }}"
+        vault.hashicorp.com/agent-pre-populate-only: "false"
+        vault.hashicorp.com/agent-cache-use-auto-auth-token: "force"
+        vault.hashicorp.com/secret-volumes: |
+          - secretName: "{{ .Values.vault.secretName }}"
+            mountPath: "/vault/secrets"
+        {{- end }}
       labels:
         {{- include "substream-backend.selectorLabels" . | nindent 8 }}
     spec:
@@ -47,12 +58,28 @@ spec:
               value: {{ .Values.redis.host }}
             - name: REDIS_PORT
               value: {{ .Values.redis.port | quote }}
+            {{- if .Values.vault.enabled }}
+            # Vault configuration
+            - name: VAULT_ENABLED
+              value: "true"
+            - name: VAULT_ADDR
+              value: {{ .Values.vault.addr | quote }}
+            - name: VAULT_ROLE
+              value: {{ .Values.vault.role | quote }}
+            - name: VAULT_AUTH_PATH
+              value: {{ .Values.vault.authPath | quote }}
+            - name: VAULT_SECRET_PATH
+              value: {{ .Values.vault.secretPath | quote }}
+            - name: VAULT_DB_PATH
+              value: {{ .Values.vault.dbPath | quote }}
+            {{- else }}
             {{- if .Values.redis.existingSecret }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.redis.existingSecret }}
                   key: {{ .Values.redis.existingPasswordKey }}
+            {{- end }}
             {{- end }}
             - name: DB_MAX_CONNECTIONS
               value: {{ .Values.database.maxConnections | quote }}

@@ -139,6 +139,16 @@ env:
   NODE_ENV: "production"
   PORT: "3000"
 
+# Vault configuration
+vault:
+  enabled: true
+  addr: "http://vault:8200"
+  role: "substream-backend"
+  authPath: "auth/kubernetes"
+  secretPath: "secret/data/substream"
+  dbPath: "database/creds/substream-role"
+  secretName: "substream-secrets"
+
 # Additional volumes
 volumes: []
 # - name: extra-volume

@@ -3,6 +3,93 @@
 const { loadConfig } = require('./src/config');
 const { BackgroundWorkerService } = require('./src/services/backgroundWorkerService');
 const { SorobanIndexerWorker } = require('./src/services/sorobanIndexerWorker');
+const { getVaultService } = require('./src/services/vaultService');
+const { getSorobanIndexerFailoverHandler, resetSorobanIndexerFailoverHandler } = require('./src/services/sorobanIndexerFailover');
+const { getRedisCacheFailoverHandler, resetRedisCacheFailoverHandler } = require('./src/services/redisCacheFailover');
+
+// Initialize Vault service if enabled
+let vaultService = null;
+
+if (process.env.VAULT_ENABLED === 'true') {
+  vaultService = getVaultService({
+    vaultAddr: process.env.VAULT_ADDR || 'http://vault:8200',
+    vaultRole: process.env.VAULT_ROLE || 'substream-backend',
+    authPath: process.env.VAULT_AUTH_PATH || 'auth/kubernetes',
+    secretPath: process.env.VAULT_SECRET_PATH || 'secret/data/substream',
+    dbPath: process.env.VAULT_DB_PATH || 'database/creds/substream-role'
+  });
+  console.log('[Vault] Vault integration enabled in worker');
+}
+
+// SIGHUP signal handler for hot-reloading secrets
+if (process.env.VAULT_ENABLED === 'true' && vaultService) {
+  process.on('SIGHUP', async () => {
+    console.log('[Vault] Received SIGHUP signal, reloading secrets...');
+    try {
+      await vaultService.reloadSecrets();
+      console.log('[Vault] Successfully reloaded secrets on SIGHUP');
+    } catch (error) {
+      console.error('[Vault] Failed to reload secrets on SIGHUP:', error.message);
+    }
+  });
+}
+
+// Graceful shutdown handler
+const cleanup = async () => {
+  console.log('[Shutdown] Cleaning up worker resources...');
+  if (vaultService) {
+    try {
+      await vaultService.cleanup();
+      console.log('[Vault] Vault service cleaned up');
+    } catch (error) {
+      console.error('[Vault] Error during cleanup:', error.message);
+    }
+  }
+  process.exit(0);
+};
+
+process.on('SIGTERM', cleanup);
+process.on('SIGINT', cleanup);
+
+// Failover signal handler (SIGUSR2)
+let sorobanFailoverHandler = null;
+let redisFailoverHandler = null;
+
+if (process.env.ENABLE_FAILOVER_HANDLING === 'true') {
+  process.on('SIGUSR2', async () => {
+    console.log('[Failover] Received SIGUSR2 signal, handling failover...');
+    try {
+      const config = await loadConfig(process.env, vaultService);
+
+      // Initialize Soroban indexer failover handler
+      if (!sorobanFailoverHandler) {
+        sorobanFailoverHandler = getSorobanIndexerFailoverHandler(config);
+        await sorobanFailoverHandler.initialize();
+      }
+
+      // Handle Soroban indexer failover
+      const sorobanResult = await sorobanFailoverHandler.handleFailover();
+      console.log('[Failover] Soroban indexer failover result:', sorobanResult);
+
+      // Initialize Redis cache failover handler
+      if (!redisFailoverHandler) {
+        redisFailoverHandler = getRedisCacheFailoverHandler(config);
+        await redisFailoverHandler.initialize();
+      }
+
+      // Clear Redis caches
+      const redisResult = await redisFailoverHandler.handleFailover({ strategy: 'application' });
+      console.log('[Failover] Redis cache clear result:', redisResult);
+
+      console.log('[Failover] Failover handled successfully');
+    } catch (error) {
+      console.error('[Failover] Failed to handle failover:', error.message);
+      process.exit(1);
+    }
+  });
+
+  console.log('[Failover] Failover handling enabled (SIGUSR2)');
+}
 
 /**
  * Standalone background worker process
@@ -10,9 +97,19 @@ const { SorobanIndexerWorker } = require('./src/services/sorobanIndexerWorker');
  */
 async function startWorker() {
   console.log('Starting SubStream Background Worker...');
-  
-  const config = loadConfig();
-  
+
+  // Initialize Vault if enabled
+  if (vaultService) {
+    try {
+      await vaultService.initialize();
+      console.log('[Vault] Vault service initialized successfully');
+    } catch (vaultError) {
+      console.error('[Vault] Vault initialization failed, continuing with environment variables:', vaultError.message);
+    }
+  }
+
+  const config = await loadConfig(process.env, vaultService);
+
   // Check if RabbitMQ is configured
   if (!config.rabbitmq || (!config.rabbitmq.url && !config.rabbitmq.host)) {
     console.error('RabbitMQ configuration is missing. Please set RABBITMQ_URL or RABBITMQ_HOST environment variables.');
@@ -46,7 +143,7 @@ async function startWorker() {
     console.log(`  - Notifications: ${config.rabbitmq.notificationQueue}`);
     console.log(`  - Emails: ${config.rabbitmq.emailQueue}`);
     console.log(`  - Leaderboard: ${config.rabbitmq.leaderboardQueue}`);
-    
+
     // Keep the process alive
     process.stdin.resume();
   } catch (error) {
@@ -61,7 +158,7 @@ const args = process.argv.slice(2);
 if (args.includes('--soroban')) {
   // Start Soroban indexer worker
   const sorobanWorker = new SorobanIndexerWorker();
-  
+
   if (args.includes('--health')) {
     sorobanWorker.healthCheck()
       .then(health => {
@@ -83,7 +180,7 @@ if (args.includes('--soroban')) {
   if (args.includes('--health')) {
     const config = loadConfig();
     const worker = new BackgroundWorkerService(config.rabbitmq);
-    
+
     worker.start()
       .then(() => {
         const status = worker.getStatus();

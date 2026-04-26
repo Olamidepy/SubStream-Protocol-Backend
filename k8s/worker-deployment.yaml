@@ -25,6 +25,16 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3001"
         prometheus.io/path: "/metrics"
+        # Vault sidecar injector annotations
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/agent-inject-status: "update"
+        vault.hashicorp.com/role: "substream-backend"
+        vault.hashicorp.com/agent-pre-populate-only: "false"
+        vault.hashicorp.com/agent-cache-use-auto-auth-token: "force"
+        # Inject secrets as environment variables
+        vault.hashicorp.com/secret-volumes: |
+          - secretName: "substream-secrets"
+            mountPath: "/vault/secrets"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -47,11 +57,20 @@ spec:
           value: "redis-service"
         - name: REDIS_PORT
           value: "6379"
-        - name: REDIS_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: substream-secrets
-              key: redis-password
+        # Vault configuration
+        - name: VAULT_ENABLED
+          value: "true"
+        - name: VAULT_ADDR
+          value: "http://vault:8200"
+        - name: VAULT_ROLE
+          value: "substream-backend"
+        - name: VAULT_AUTH_PATH
+          value: "auth/kubernetes"
+        - name: VAULT_SECRET_PATH
+          value: "secret/data/substream"
+        - name: VAULT_DB_PATH
+          value: "database/creds/substream-role"
+        # Soroban configuration from ConfigMap
         - name: SOROBAN_RPC_URL
           valueFrom:
             configMapKeyRef:

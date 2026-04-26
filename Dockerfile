@@ -75,6 +75,10 @@ COPY --chown=nodejs:nodejs index.js ./
 COPY --chown=nodejs:nodejs knexfile.js ./
 COPY --chown=nodejs:nodejs .env.example ./.env.example
 
+# Copy Knex migrations for initContainer
+COPY --chown=nodejs:nodejs migrations ./migrations
+COPY --chown=nodejs:nodejs scripts ./scripts
+
 # Create data directory with proper permissions
 RUN mkdir -p /app/data && \
     chown nodejs:nodejs /app/data

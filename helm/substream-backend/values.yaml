@@ -101,6 +101,26 @@ database:
   filename: "/app/data/substream.db"
   maxConnections: 20
 
+# Migration configuration
+migration:
+  enabled: true
+  strategy: "initContainer" # Options: "initContainer" or "job"
+  timeout: 1800 # 30 minutes in seconds
+  lockTimeout: 300 # 5 minutes in seconds
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+  # Vault configuration for migration credentials
+  vault:
+    enabled: false
+    role: "substream-migration"
+    secretPath: "database/creds/migration"
+    address: "http://vault:8200"
+
 persistence:
   enabled: true
   storageClass: "fast-ssd"

@@ -1,0 +1,78 @@
+{{- if .Values.worker.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "substream-backend.fullname" . }}-worker
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "substream-backend.name" . }}-worker
+    app.kubernetes.io/instance: {{ .Release.Name }}-worker
+    app.kubernetes.io/version: {{ .Chart.AppVersion }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  {{- if not .Values.worker.autoscaling.enabled }}
+  replicas: {{ .Values.worker.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "substream-backend.name" . }}-worker
+      app.kubernetes.io/instance: {{ .Release.Name }}-worker
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3001"
+        prometheus.io/path: "/metrics"
+      labels:
+        app.kubernetes.io/name: {{ include "substream-backend.name" . }}-worker
+        app.kubernetes.io/instance: {{ .Release.Name }}-worker
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: {{ .Chart.Name }}-worker
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+              - ALL
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["node", "worker.js", "--soroban"]
+          ports:
+            - name: metrics
+              containerPort: 3001
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.env.NODE_ENV }}
+            - name: REDIS_HOST
+              value: {{ .Values.redis.host }}
+            - name: REDIS_PORT
+              value: {{ .Values.redis.port | quote }}
+            {{- if .Values.redis.existingSecret }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.existingSecret }}
+                  key: {{ .Values.redis.existingPasswordKey }}
+            {{- end }}
+            - name: DB_MAX_CONNECTIONS
+              value: {{ .Values.database.maxConnections | quote }}
+          livenessProbe:
+            {{- toYaml .Values.workerLivenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.workerReadinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp-volume
+              mountPath: /tmp
+      volumes:
+        - name: tmp-volume
+          emptyDir: {}
+{{- end }}

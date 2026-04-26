@@ -1,0 +1,37 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: redis-metrics-adapter
+  namespace: substream
+  labels:
+    app: redis-metrics-adapter
+spec:
+  selector:
+    matchLabels:
+      app: redis-metrics-adapter
+  endpoints:
+  - port: metrics
+    interval: 15s
+    path: /metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: redis-queue-scaling-rules
+  namespace: substream
+  labels:
+    app: redis-metrics-adapter
+spec:
+  groups:
+  - name: redis.queue.scaling
+    rules:
+    - record: redis:queue_length:soroban_events
+      expr: redis_queue_length{queue="soroban_events"}
+    - alert: RedisQueueBacklogHigh
+      expr: redis_queue_length{queue="soroban_events"} > 1000
+      for: 2m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Redis queue backlog is high"
+        description: "Soroban events queue has {{ $value }} pending items"

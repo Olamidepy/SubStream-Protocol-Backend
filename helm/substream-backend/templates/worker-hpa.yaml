@@ -1,0 +1,53 @@
+{{- if and .Values.worker.enabled .Values.worker.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "substream-backend.fullname" . }}-worker-hpa
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ include "substream-backend.name" . }}-worker
+    app.kubernetes.io/instance: {{ .Release.Name }}-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "substream-backend.fullname" . }}-worker
+  minReplicas: {{ .Values.worker.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.worker.autoscaling.maxReplicas }}
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: {{ .Values.worker.autoscaling.targetCPUUtilizationPercentage }}
+  {{- if .Values.metrics.redis.enabled }}
+  - type: External
+    external:
+      metric:
+        name: redis_queue_length
+        selector:
+          matchLabels:
+            queue: soroban_events
+      target:
+        type: Value
+        value: {{ .Values.worker.autoscaling.redisQueueThreshold | quote }}
+  {{- end }}
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: {{ .Values.worker.autoscaling.scaleDownStabilizationSeconds }}
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+      - type: Percent
+        value: {{ .Values.worker.autoscaling.scaleUpPercent }}
+        periodSeconds: {{ .Values.worker.autoscaling.scaleUpPeriodSeconds }}
+      - type: Pods
+        value: {{ .Values.worker.autoscaling.scaleUpPods }}
+        periodSeconds: {{ .Values.worker.autoscaling.scaleUpPeriodSeconds }}
+      selectPolicy: Max
+{{- end }}

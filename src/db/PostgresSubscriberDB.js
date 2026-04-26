@@ -6,11 +6,22 @@ const cacheManager = require('../utils/cache');
 
 class PostgresSubscriberDB {
     constructor(connectionString) {
+        // Dynamic pool sizing based on environment
+        const maxConnections = process.env.DB_MAX_CONNECTIONS ? 
+            parseInt(process.env.DB_MAX_CONNECTIONS) : 
+            Math.max(20, Math.min(50, require('os').cpus().length * 5));
+            
         this.pool = new Pool({
             connectionString,
-            max: 20, // Connection pool size for concurrent requests
+            max: maxConnections, // Scaled connection pool for HPA events
+            min: Math.min(5, Math.floor(maxConnections / 4)), // Minimum connections
             idleTimeoutMillis: 30000,
-            connectionTimeoutMillis: 2000,
+            connectionTimeoutMillis: 5000, // Increased timeout for scale-up scenarios
+            acquireTimeoutMillis: 10000,
+            createTimeoutMillis: 30000,
+            destroyTimeoutMillis: 5000,
+            reapIntervalMillis: 1000,
+            createRetryIntervalMillis: 200,
         });
         
         // Prepare statements for optimal performance

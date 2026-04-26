@@ -1,0 +1,99 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "substream-backend.fullname" . }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "substream-backend.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "substream-backend.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- toYaml .Values.podAnnotations | nindent 8 }}
+      labels:
+        {{- include "substream-backend.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "substream-backend.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.targetPort }}
+              protocol: TCP
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.env.NODE_ENV }}
+            - name: PORT
+              value: {{ .Values.env.PORT | quote }}
+            - name: DATABASE_FILENAME
+              value: {{ .Values.database.filename }}
+            - name: REDIS_HOST
+              value: {{ .Values.redis.host }}
+            - name: REDIS_PORT
+              value: {{ .Values.redis.port | quote }}
+            {{- if .Values.redis.existingSecret }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.existingSecret }}
+                  key: {{ .Values.redis.existingPasswordKey }}
+            {{- end }}
+            - name: DB_MAX_CONNECTIONS
+              value: {{ .Values.database.maxConnections | quote }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+            - name: tmp-volume
+              mountPath: /tmp
+            {{- range .Values.volumeMounts }}
+            - name: {{ .name }}
+              mountPath: {{ .mountPath }}
+            {{- end }}
+      volumes:
+        - name: data-volume
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "substream-backend.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: tmp-volume
+          emptyDir: {}
+        {{- range .Values.volumes }}
+        - name: {{ .name }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

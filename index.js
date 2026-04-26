@@ -1,10 +1,52 @@
 const express = require('express');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const promClient = require('prom-client');
 
 dotenv.config();
 require('dotenv').config();
 dotenv.config();
+
+// Initialize Prometheus metrics
+const register = new promClient.Registry();
+promClient.collectDefaultMetrics({ register });
+
+// Custom metrics
+const httpRequestDuration = new promClient.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'status_code'],
+  buckets: [0.1, 0.5, 1, 2.5, 5, 10],
+  registers: [register],
+});
+
+const httpRequestsTotal = new promClient.Counter({
+  name: 'http_requests_total',
+  help: 'Total number of HTTP requests',
+  labelNames: ['method', 'route', 'status_code'],
+  registers: [register],
+});
+
+// Business metrics
+const totalMrrProcessed = new promClient.Gauge({
+  name: 'total_mrr_processed_today',
+  help: 'Total Monthly Recurring Revenue processed today',
+  registers: [register],
+});
+
+// Soroban indexer lag
+const sorobanIndexerLag = new promClient.Gauge({
+  name: 'soroban_indexer_ledger_lag',
+  help: 'Number of ledgers the indexer is behind the Stellar network',
+  registers: [register],
+});
+
+// Database connections
+const activeDbConnections = new promClient.Gauge({
+  name: 'database_connections_active',
+  help: 'Number of active database connections',
+  registers: [register],
+});
 
 // Initialize structured logging and error tracking
 const { logger, requestTracingMiddleware } = require('./src/utils/logger');
@@ -63,8 +105,6 @@ function createApp(dependencies = {}) {
   const database = dependencies.database || new AppDatabase(config.database.filename);
   const auditLogService =
     dependencies.auditLogService || new CreatorAuditLogService(database);
-
-  const auditLogService = dependencies.auditLogService || new CreatorAuditLogService(database);
   const creatorActionService =
     dependencies.creatorActionService ||
     new CreatorActionService(database, auditLogService);
@@ -78,6 +118,22 @@ function createApp(dependencies = {}) {
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
+
+  // Prometheus metrics middleware
+  app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+      const duration = (Date.now() - start) / 1000;
+      const route = req.route ? req.route.path : req.path;
+      httpRequestDuration
+        .labels(req.method, route, res.statusCode.toString())
+        .observe(duration);
+      httpRequestsTotal
+        .labels(req.method, route, res.statusCode.toString())
+        .inc();
+    });
+    next();
+  });
 
   // Attach req.user = { address, tier } to every request.
   // Never rejects — unauthenticated requests get tier = 'guest'.
@@ -312,6 +368,26 @@ function createApp(dependencies = {}) {
         posts: 'active',
       },
     });
+  });
+
+  // Prometheus metrics endpoint
+  app.get('/metrics', (req, res) => {
+    try {
+      // Update business metrics (this could be done periodically)
+      // For demo, setting static values; in real app, fetch from database/services
+      totalMrrProcessed.set(12500.50); // Example value
+      sorobanIndexerLag.set(5); // Example lag
+      activeDbConnections.set(12); // Example connections
+
+      res.set('Content-Type', register.contentType);
+      register.metrics().then(metrics => {
+        res.end(metrics);
+      }).catch(error => {
+        res.status(500).end(error.message);
+      });
+    } catch (error) {
+      res.status(500).end(error.message);
+    }
   });
 
   // ── Auth routes ────────────────────────────────────────────────────────────

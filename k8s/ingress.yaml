@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: substream-backend-ingress
+  namespace: substream
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    # Exclude /metrics from public access
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location /metrics {
+        deny all;
+        return 403;
+      }
+spec:
+  rules:
+  - host: api.substream.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: substream-backend-service
+            port:
+              number: 80
+  tls:
+  - hosts:
+    - api.substream.example.com
+    secretName: substream-tls

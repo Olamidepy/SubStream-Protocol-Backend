@@ -1,0 +1,102 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "SubStream Protocol Backend Dashboard",
+    "tags": ["substream", "backend", "api"],
+    "timezone": "UTC",
+    "panels": [
+      {
+        "id": 1,
+        "title": "API Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total[5m])",
+            "legendFormat": "{{method}} {{route}}"
+          }
+        ],
+        "yAxes": [
+          {
+            "unit": "reqps"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "API Error Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(http_requests_total{status_code=~\"4..\"}[5m])",
+            "legendFormat": "4xx errors"
+          },
+          {
+            "expr": "rate(http_requests_total{status_code=~\"5..\"}[5m])",
+            "legendFormat": "5xx errors"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "API Latency Percentiles",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p99"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(http_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "p50"
+          }
+        ],
+        "yAxes": [
+          {
+            "unit": "s"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Active Database Connections",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "database_connections_active"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Soroban Indexer Lag",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "soroban_indexer_ledger_lag"
+          }
+        ],
+        "thresholds": "10,50"
+      },
+      {
+        "id": 6,
+        "title": "Total MRR Processed Today",
+        "type": "singlestat",
+        "targets": [
+          {
+            "expr": "total_mrr_processed_today"
+          }
+        ],
+        "format": "currencyUSD"
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "refresh": "30s"
+  }
+}

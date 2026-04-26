@@ -1,0 +1,131 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: substream-worker
+  namespace: substream
+  labels:
+    app: substream-worker
+    version: v1
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: substream-worker
+  template:
+    metadata:
+      labels:
+        app: substream-worker
+        version: v1
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3001"
+        prometheus.io/path: "/metrics"
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+      - name: substream-worker
+        image: substream/backend:latest
+        imagePullPolicy: Always
+        command: ["node", "worker.js", "--soroban"]
+        ports:
+        - containerPort: 3001
+          name: metrics
+          protocol: TCP
+        env:
+        - name: NODE_ENV
+          value: "production"
+        - name: REDIS_HOST
+          value: "redis-service"
+        - name: REDIS_PORT
+          value: "6379"
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: substream-secrets
+              key: redis-password
+        - name: SOROBAN_RPC_URL
+          valueFrom:
+            configMapKeyRef:
+              name: substream-config
+              key: soroban-rpc-url
+        - name: SOROBAN_NETWORK_PASSPHRASE
+          valueFrom:
+            configMapKeyRef:
+              name: substream-config
+              key: soroban-network-passphrase
+        - name: SOROBAN_CONTRACT_ID
+          valueFrom:
+            configMapKeyRef:
+              name: substream-config
+              key: soroban-contract-id
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          exec:
+            command:
+            - node
+            - worker.js
+            - --soroban
+            - --health
+          initialDelaySeconds: 30
+          periodSeconds: 30
+          timeoutSeconds: 10
+          failureThreshold: 3
+        readinessProbe:
+          exec:
+            command:
+            - node
+            - worker.js
+            - --soroban
+            - --health
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+          failureThreshold: 3
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+        volumeMounts:
+        - name: tmp-volume
+          mountPath: /tmp
+      volumes:
+      - name: tmp-volume
+        emptyDir: {}
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 30
+      dnsPolicy: ClusterFirst
+      schedulerName: default-scheduler
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: substream-worker-service
+  namespace: substream
+  labels:
+    app: substream-worker
+spec:
+  type: ClusterIP
+  ports:
+  - port: 3001
+    targetPort: 3001
+    protocol: TCP
+    name: metrics
+  selector:
+    app: substream-worker

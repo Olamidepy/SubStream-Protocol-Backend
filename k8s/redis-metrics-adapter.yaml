@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: redis-metrics-adapter
+  namespace: substream
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: redis-metrics-reader
+rules:
+- apiGroups: [""]
+  resources: ["pods", "services"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["external.metrics.k8s.io"]
+  resources: ["*"]
+  verbs: ["*"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: redis-metrics-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: redis-metrics-reader
+subjects:
+- kind: ServiceAccount
+  name: redis-metrics-adapter
+  namespace: substream
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-metrics-adapter
+  namespace: substream
+  labels:
+    app: redis-metrics-adapter
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis-metrics-adapter
+  template:
+    metadata:
+      labels:
+        app: redis-metrics-adapter
+    spec:
+      serviceAccountName: redis-metrics-adapter
+      containers:
+      - name: redis-metrics-adapter
+        image: redis:7-alpine
+        command:
+        - sh
+        - -c
+        - |
+          apk add --no-cache curl jq
+          while true; do
+            # Get Redis queue length for Soroban events
+            QUEUE_LENGTH=$(redis-cli -h redis-service -p 6379 -a $REDIS_PASSWORD llen soroban_events_queue 2>/dev/null || echo "0")
+            echo "Redis queue length: $QUEUE_LENGTH"
+            
+            # Expose metrics for Prometheus
+            echo "# HELP redis_queue_length Current length of Redis queue"
+            echo "# TYPE redis_queue_length gauge"
+            echo "redis_queue_length{queue=\"soroban_events\"} $QUEUE_LENGTH" > /tmp/metrics
+            
+            sleep 10
+          done
+        env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: substream-secrets
+              key: redis-password
+        ports:
+        - containerPort: 8080
+          name: metrics
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        livenessProbe:
+          httpGet:
+            path: /metrics
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /metrics
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-metrics-adapter
+  namespace: substream
+  labels:
+    app: redis-metrics-adapter
+spec:
+  type: ClusterIP
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+    name: metrics
+  selector:
+    app: redis-metrics-adapter

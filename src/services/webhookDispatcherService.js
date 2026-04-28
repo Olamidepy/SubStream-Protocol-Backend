@@ -1,5 +1,6 @@
 // src/services/webhookDispatcherService.js
 const crypto = require('crypto');
+const knexFactory = require('knex');
 const { Queue } = require('bullmq');
 const { getRedisConnection } = require('../config/redis');
 
@@ -14,6 +15,7 @@ class WebhookDispatcherService {
         removeOnFail: { age: 30 * 24 * 3600 },
       }
     });
+    this.knex = knexFactory(require('../../knexfile')[process.env.NODE_ENV || 'development']);
   }
 
   /**
@@ -61,17 +63,16 @@ class WebhookDispatcherService {
   }
 
   async getMerchantWithSecret(merchantId) {
-    const knex = require('knex')(require('../knexfile')[process.env.NODE_ENV || 'development']);
-    const merchant = await knex('merchants')
+    const merchant = await this.knex('merchants')
       .where({ id: merchantId })
       .select('webhook_url', 'webhook_secret')
       .first();
-    await knex.destroy();
     return merchant;
   }
 
   async close() {
     await this.queue.close();
+    await this.knex.destroy();
   }
 }
 

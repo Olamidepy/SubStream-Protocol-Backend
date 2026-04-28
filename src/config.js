@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const { Networks } = require('@stellar/stellar-sdk');
 
 const DEFAULT_CONTRACT_ID = 'CAOUX2FZ65IDC4F2X7LJJ2SVF23A35CCTZB7KVVN475JCLKTTU4CEY6L';
+const { getPostgresPoolSizing } = require('./database/poolConfig');
 
 /**
  * Load runtime configuration from environment variables or Vault.
@@ -29,6 +30,7 @@ async function loadConfig(env = process.env, vaultService = null) {
   const getSecret = (key, defaultValue = '') => {
     return vaultSecrets[key] !== undefined ? vaultSecrets[key] : (env[key] || defaultValue);
   };
+  const databasePool = getPostgresPoolSizing(env);
 
   return {
     port: Number(env.PORT || 3000),
@@ -52,7 +54,12 @@ async function loadConfig(env = process.env, vaultService = null) {
       filename: env.DATABASE_FILENAME || path.join(process.cwd(), 'data', 'substream-protocol.sqlite'),
       url: env.DATABASE_URL || '',
       encryptionKey: getSecret('DB_ENCRYPTION_KEY') || '',
-      maxConnections: Number(env.DB_MAX_CONNECTIONS || 20),
+      maxConnections: databasePool.max,
+      minConnections: databasePool.min,
+      idleTimeoutMillis: databasePool.idleTimeoutMillis,
+      connectionTimeoutMillis: databasePool.connectionTimeoutMillis,
+      statementTimeoutMillis: databasePool.statementTimeoutMillis,
+      idleInTransactionSessionTimeoutMillis: databasePool.idleInTransactionSessionTimeoutMillis,
     },
     cdn: {
       baseUrl: env.CDN_BASE_URL || '',

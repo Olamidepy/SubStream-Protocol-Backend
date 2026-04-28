@@ -3,6 +3,7 @@
 const { loadConfig } = require('./src/config');
 const { BackgroundWorkerService } = require('./src/services/backgroundWorkerService');
 const { SorobanIndexerWorker } = require('./src/services/sorobanIndexerWorker');
+const { ReconciliationWorker } = require('./src/services/reconciliationWorker');
 const { getVaultService } = require('./src/services/vaultService');
 const { getSorobanIndexerFailoverHandler, resetSorobanIndexerFailoverHandler } = require('./src/services/sorobanIndexerFailover');
 const { getRedisCacheFailoverHandler, resetRedisCacheFailoverHandler } = require('./src/services/redisCacheFailover');
@@ -168,6 +169,27 @@ if (args.includes('--soroban')) {
   } else {
     sorobanWorker.start().catch(error => {
       console.error('Failed to start Soroban worker:', error);
+      process.exit(1);
+    });
+  }
+
+} else if (args.includes('--reconciliation')) {
+  // Start Reconciliation Worker
+  console.log('[Worker] Starting Reconciliation Worker...');
+  const reconciliationWorker = new ReconciliationWorker();
+
+  if (args.includes('--health')) {
+    // Health check for reconciliation worker
+    console.log('[Worker] Reconciliation Worker health check');
+    console.log(JSON.stringify({
+      status: 'healthy',
+      isRunning: reconciliationWorker.isRunning,
+      stats: reconciliationWorker.getStats()
+    }, null, 2));
+    process.exit(0);
+  } else {
+    reconciliationWorker.start().catch(error => {
+      console.error('Failed to start Reconciliation worker:', error);
       process.exit(1);
     });
   }

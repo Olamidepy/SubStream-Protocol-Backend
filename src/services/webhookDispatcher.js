@@ -7,21 +7,37 @@ const { PrivacyService } = require('./privacyService');
  * Handles sending webhooks to merchants with privacy scrubbing
  */
 class WebhookDispatcher {
-  constructor(database, logger = console) {
+  constructor(database, logger = console, sanctionsScreeningService = null) {
     this.database = database;
     this.logger = logger;
     this.privacyService = new PrivacyService(database);
+    // Optional — when present, dispatch is refused for BLOCKED wallets so a
+    // sanctioned account can't trigger downstream merchant systems.
+    this.sanctionsScreeningService = sanctionsScreeningService;
   }
 
   /**
    * Dispatch a webhook event to a merchant
-   * @param {string} creatorId 
-   * @param {string} walletAddress 
-   * @param {string} eventType 
-   * @param {Object} payload 
+   * @param {string} creatorId
+   * @param {string} walletAddress
+   * @param {string} eventType
+   * @param {Object} payload
    */
   async dispatch(creatorId, walletAddress, eventType, payload) {
     try {
+      // Sanctions gate: refuse to dispatch webhooks tied to a BLOCKED wallet.
+      // Cached/synchronous so the hot path is a single Map lookup.
+      if (
+        walletAddress &&
+        this.sanctionsScreeningService &&
+        this.sanctionsScreeningService.isBlocked(walletAddress)
+      ) {
+        this.logger.warn(
+          `Webhook suppressed for BLOCKED wallet ${walletAddress} (event ${eventType})`
+        );
+        return { success: false, error: 'ACCOUNT_BLOCKED' };
+      }
+
       // 1. Get merchant's webhook URL
       // We assume creators/merchants have a webhook_url configured in their profile
       const merchant = await this.database.getCreator(creatorId);

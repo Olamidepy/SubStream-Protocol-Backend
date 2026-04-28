@@ -61,23 +61,19 @@ if (process.env.ENABLE_FAILOVER_HANDLING === 'true') {
     try {
       const config = await loadConfig(process.env, vaultService);
 
-      // Initialize Soroban indexer failover handler
       if (!sorobanFailoverHandler) {
         sorobanFailoverHandler = getSorobanIndexerFailoverHandler(config);
         await sorobanFailoverHandler.initialize();
       }
 
-      // Handle Soroban indexer failover
       const sorobanResult = await sorobanFailoverHandler.handleFailover();
       console.log('[Failover] Soroban indexer failover result:', sorobanResult);
 
-      // Initialize Redis cache failover handler
       if (!redisFailoverHandler) {
         redisFailoverHandler = getRedisCacheFailoverHandler(config);
         await redisFailoverHandler.initialize();
       }
 
-      // Clear Redis caches
       const redisResult = await redisFailoverHandler.handleFailover({ strategy: 'application' });
       console.log('[Failover] Redis cache clear result:', redisResult);
 
@@ -93,7 +89,6 @@ if (process.env.ENABLE_FAILOVER_HANDLING === 'true') {
 
 /**
  * Standalone background worker process
- * This can be run as a separate service from the main API
  */
 async function startWorker() {
   console.log('Starting SubStream Background Worker...');
@@ -110,7 +105,7 @@ async function startWorker() {
 
   const config = await loadConfig(process.env, vaultService);
 
-  // Check if RabbitMQ is configured
+  // RabbitMQ Check
   if (!config.rabbitmq || (!config.rabbitmq.url && !config.rabbitmq.host)) {
     console.error('RabbitMQ configuration is missing. Please set RABBITMQ_URL or RABBITMQ_HOST environment variables.');
     process.exit(1);
@@ -118,7 +113,7 @@ async function startWorker() {
 
   const worker = new BackgroundWorkerService(config.rabbitmq);
 
-  // Handle graceful shutdown
+  // Handle graceful shutdown for main background worker
   const shutdown = async (signal) => {
     console.log(`\nReceived ${signal}. Shutting down gracefully...`);
     try {
@@ -134,7 +129,7 @@ async function startWorker() {
   process.on('SIGINT', () => shutdown('SIGINT'));
   process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-  // Start the worker
+  // Start the main background worker
   try {
     await worker.start();
     console.log('Background worker started successfully');
@@ -143,20 +138,21 @@ async function startWorker() {
     console.log(`  - Notifications: ${config.rabbitmq.notificationQueue}`);
     console.log(`  - Emails: ${config.rabbitmq.emailQueue}`);
     console.log(`  - Leaderboard: ${config.rabbitmq.leaderboardQueue}`);
-
-    // Keep the process alive
-    process.stdin.resume();
   } catch (error) {
     console.error('Failed to start background worker:', error);
     process.exit(1);
   }
 }
 
-// Check which worker to start based on command line arguments
+// ========================
+// Worker Routing Logic
+// ========================
+
 const args = process.argv.slice(2);
 
 if (args.includes('--soroban')) {
-  // Start Soroban indexer worker
+  // Start Soroban Indexer Worker
+  console.log('[Worker] Starting Soroban Indexer...');
   const sorobanWorker = new SorobanIndexerWorker();
 
   if (args.includes('--health')) {
@@ -175,8 +171,9 @@ if (args.includes('--soroban')) {
       process.exit(1);
     });
   }
+
 } else {
-  // Health check endpoint for monitoring
+  // Start Main Background Worker + Webhook Dispatcher
   if (args.includes('--health')) {
     const config = loadConfig();
     const worker = new BackgroundWorkerService(config.rabbitmq);
@@ -193,5 +190,19 @@ if (args.includes('--soroban')) {
       });
   } else {
     startWorker();
+
+    // === NEW: Start Merchant Webhook Dispatcher Worker ===
+    console.log('[Worker] Starting Merchant Webhook Dispatcher...');
+    try {
+      require('./src/workers/webhookWorker');
+    } catch (error) {
+      console.error('[Worker] Failed to start Webhook Dispatcher:', error.message);
+      // Don't crash the whole worker if webhook fails to start
+    }
   }
+}
+
+// Keep the process alive when running as background worker
+if (!args.includes('--soroban') && !args.includes('--health')) {
+  process.stdin.resume();
 }

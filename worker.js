@@ -1,5 +1,11 @@
 #!/usr/bin/env node
 
+const dotenv = require('dotenv');
+const { initTracing } = require('./src/utils/opentelemetry');
+
+dotenv.config();
+initTracing({ serviceName: 'substream-protocol-backend-worker', serviceVersion: '1.0.0' });
+
 const { loadConfig } = require('./src/config');
 const { BackgroundWorkerService } = require('./src/services/backgroundWorkerService');
 const { SorobanIndexerWorker } = require('./src/services/sorobanIndexerWorker');

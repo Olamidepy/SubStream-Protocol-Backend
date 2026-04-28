@@ -1,0 +1,398 @@
+{
+	"info": {
+		"_postman_id": "sandbox-api-collection",
+		"name": "SubStream Sandbox API",
+		"description": "Postman collection for SubStream Protocol Sandbox Environment testing",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{stellarAuthToken}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost:3000",
+			"type": "string"
+		},
+		{
+			"key": "stellarAuthToken",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "Sandbox Status",
+			"item": [
+				{
+					"name": "Get Sandbox Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Status request successful\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response has correct structure\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('enabled');",
+									"    pm.expect(jsonData.data).to.have.property('mode');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sandbox/status",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sandbox", "status"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Mock Payments",
+			"item": [
+				{
+					"name": "Create Mock Payment",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Mock payment created successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response contains payment data\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('id');",
+									"    pm.expect(jsonData.data).to.have.property('type', 'SubscriptionBilled');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"subscriptionId\": \"test_subscription_123\",\n  \"creatorAddress\": \"GD5DJQDKEZ6BDJQ3MHLQZSYXO5VJ5D7\",\n  \"subscriberAddress\": \"GB3K4PLCEQ6D5XQ5K2A6Z5FQ7Y8Z9A\",\n  \"amount\": 0,\n  \"tier\": \"bronze\",\n  \"metadata\": {\n    \"test\": true\n  }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/sandbox/mock-payment",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sandbox", "mock-payment"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Mock Payment with Amount",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"subscriptionId\": \"test_subscription_456\",\n  \"creatorAddress\": \"GD5DJQDKEZ6BDJQ3MHLQZSYXO5VJ5D7\",\n  \"subscriberAddress\": \"GB3K4PLCEQ6D5XQ5K2A6Z5FQ7Y8Z9A\",\n  \"amount\": 10.50,\n  \"tier\": \"silver\",\n  \"metadata\": {\n    \"test\": true,\n    \"description\": \"Test silver tier subscription\"\n  }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/sandbox/mock-payment",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sandbox", "mock-payment"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Failure Simulation",
+			"item": [
+				{
+					"name": "Simulate Payment Failure",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Failure simulated successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response contains failure data\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('type', 'PaymentFailed');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"subscriptionId\": \"test_subscription_123\",\n  \"failureType\": \"insufficient_funds\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/sandbox/simulate-failure",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sandbox", "simulate-failure"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Simulate Network Error",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"subscriptionId\": \"test_subscription_789\",\n  \"failureType\": \"network_error\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/sandbox/simulate-failure",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sandbox", "simulate-failure"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Testnet Account",
+			"item": [
+				{
+					"name": "Create Testnet Account",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Testnet account created successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response contains account data\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('publicKey');",
+									"    pm.expect(jsonData.data).to.have.property('secretKey');",
+									"    pm.expect(jsonData.data).to.have.property('network');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sandbox/testnet-account",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sandbox", "testnet-account"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Mock Events",
+			"item": [
+				{
+					"name": "Get Mock Events",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Events retrieved successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response contains events array\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('data');",
+									"    pm.expect(jsonData.data).to.have.property('events');",
+									"    pm.expect(jsonData.data.events).to.be.an('array');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sandbox/mock-events?limit=10&offset=0",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sandbox", "mock-events"],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10"
+								},
+								{
+									"key": "offset",
+									"value": "0"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Clear Mock Events",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test(\"Events cleared successfully\", function () {",
+									"    pm.response.to.have.status(200);",
+									"});",
+									"",
+									"pm.test(\"Response contains success message\", function () {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(jsonData).to.have.property('success', true);",
+									"    pm.expect(jsonData).to.have.property('message');",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sandbox/mock-events",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sandbox", "mock-events"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Webhook Testing",
+			"item": [
+				{
+					"name": "Test Webhook Delivery",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"webhookUrl\": \"https://webhook.site/your-unique-id\",\n  \"eventType\": \"SubscriptionBilled\",\n  \"payload\": {\n    \"subscriptionId\": \"test_webhook_123\",\n    \"amount\": 0,\n    \"tier\": \"bronze\",\n    \"creatorAddress\": \"GD5DJQDKEZ6BDJQ3MHLQZSYXO5VJ5D7\",\n    \"subscriberAddress\": \"GB3K4PLCEQ6D5XQ5K2A6Z5FQ7Y8Z9A\"\n  }\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/sandbox/webhook-test",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sandbox", "webhook-test"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Failure Rules",
+			"item": [
+				{
+					"name": "Get Failure Rules",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{baseUrl}}/api/sandbox/failure-rules",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sandbox", "failure-rules"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Failure Rule",
+					"request": {
+						"method": "PUT",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"enabled\": true,\n  \"probability\": 0.15,\n  \"types\": [\"insufficient_funds\", \"network_error\", \"timeout\", \"account_locked\"]\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/sandbox/failure-rules/random_failure",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "sandbox", "failure-rules", "random_failure"]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	]
+}

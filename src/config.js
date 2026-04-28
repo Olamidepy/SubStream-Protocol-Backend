@@ -220,6 +220,28 @@ async function loadConfig(env = process.env, vaultService = null) {
       testMode: env.SSL_TEST_MODE === 'true',
       useApi: env.CADDY_USE_API === 'true',
     },
+    sandbox: {
+      enabled: env.SANDBOX_ENABLED === 'true',
+      mode: env.SANDBOX_MODE || 'testnet',
+      dbSchemaPrefix: env.SANDBOX_DB_SCHEMA_PREFIX || 'sandbox_',
+      stellar: {
+        networkPassphrase: env.SANDBOX_STELLAR_NETWORK_PASSPHRASE || 'Test SDF Network ; September 2015',
+        horizonUrl: env.SANDBOX_STELLAR_HORIZON_URL || 'https://horizon-testnet.stellar.org',
+      },
+      soroban: {
+        rpcUrl: env.SANDBOX_SOROBAN_RPC_URL || 'https://soroban-rpc.testnet.stellar.gateway.fm',
+        contractId: env.SANDBOX_SOROBAN_CONTRACT_ID || DEFAULT_CONTRACT_ID,
+      },
+      mockPayments: {
+        enabled: env.SANDBOX_MOCK_PAYMENTS_ENABLED === 'true',
+      },
+      failureSimulation: {
+        enabled: env.SANDBOX_FAILURE_SIMULATION_ENABLED === 'true',
+      },
+      zeroValueTokens: {
+        enabled: env.SANDBOX_ZERO_VALUE_TOKENS_ENABLED === 'true',
+      },
+    },
   };
 }
 

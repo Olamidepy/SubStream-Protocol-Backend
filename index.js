@@ -339,6 +339,8 @@ async function createApp(dependencies = {}) {
     app.use('/api/subscription', require('./routes/subscription'));
     // Payouts API
     app.use('/api/payouts', require('./routes/payouts'));
+    // Sandbox API
+    app.use('/api/sandbox', require('./routes/sandbox'));
 
     // Social token gating endpoints
     app.use('/api/social-token', createSocialTokenRoutes());

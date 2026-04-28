@@ -697,21 +697,23 @@ async function createApp(dependencies = {}) {
           res.status(500).json({ success: false, error: 'Internal server error' });
         });
 
-        app.use((req, res) => {
-          res.status(404).json({ success: false, error: 'Endpoint not found' });
-          app.use('/api/videos', createVideoRoutes(config, database, videoWorker));
+        // Video routes
+        app.use('/api/videos', createVideoRoutes(config, database, videoWorker));
 
-          // Device fingerprinting endpoints for fraud prevention
-          if (process.env.REDIS_URL || process.env.REDIS_HOST) {
-            const deviceService = new DeviceFingerprintService(getRedisClient());
-            app.set('deviceFingerprintService', deviceService);
-            app.use('/api/device', createDeviceRoutes);
-          }
+        // Merchant treasury routes
+        app.use('/api/v1/merchants', require('./routes/merchants'));
 
-          // API Documentation with Swagger UI
-          app.use('/api/docs', createSwaggerRoutes);
+        // Device fingerprinting endpoints for fraud prevention
+        if (process.env.REDIS_URL || process.env.REDIS_HOST) {
+          const deviceService = new DeviceFingerprintService(getRedisClient());
+          app.set('deviceFingerprintService', deviceService);
+          app.use('/api/device', createDeviceRoutes);
+        }
 
-          // IP Intelligence management routes
+        // API Documentation with Swagger UI
+        app.use('/api/docs', createSwaggerRoutes);
+
+        // IP Intelligence management routes
           if (ipIntelligenceService) {
             app.use('/api/ip-intelligence', createIPIntelligenceRoutes({
               ipIntelligenceService,
@@ -726,6 +728,11 @@ async function createApp(dependencies = {}) {
               behavioralService
             }));
           }
+
+          // 404 handler
+          app.use((req, res) => {
+            res.status(404).json({ success: false, error: 'Endpoint not found' });
+          });
 
           // Health check endpoint
           app.get('/health', async (req, res) => {

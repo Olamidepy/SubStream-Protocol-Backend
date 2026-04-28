@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const { authenticateToken, getUserId } = require('../middleware/unifiedAuth');
 const StripeMigrationService = require('../services/stripeMigrationService');
+const treasuryService = require('../services/treasuryService');
 
 const router = express.Router();
 
@@ -383,6 +384,76 @@ router.get('/migration-jobs', authenticateToken, async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message || 'Failed to list migration jobs'
+    });
+  }
+});
+
+/**
+ * GET /api/v1/merchants/:id/treasury/consolidated
+ * Get consolidated treasury view for a merchant
+ */
+router.get('/:id/treasury/consolidated', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = getUserId(req.user);
+
+    // For now, allow access to any merchant ID (in production, add proper authorization)
+    const consolidatedTreasury = await treasuryService.getConsolidatedTreasury(id);
+    
+    if (!consolidatedTreasury) {
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        message: `Merchant not found or no treasury data available for merchant ID: ${id}`,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    res.json({
+      success: true,
+      data: consolidatedTreasury,
+      timestamp: new Date().toISOString(),
+      message: 'Consolidated treasury retrieved successfully'
+    });
+  } catch (error) {
+    console.error('Error in consolidated treasury endpoint', { merchantId: req.params.id, error });
+    res.status(500).json({
+      success: false,
+      error: 'Internal Server Error',
+      message: 'Failed to retrieve consolidated treasury data',
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
+/**
+ * GET /api/v1/merchants/:id/treasury/history
+ * Get treasury history for a merchant
+ */
+router.get('/:id/treasury/history', authenticateToken, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { days = '30' } = req.query;
+    
+    const history = await treasuryService.getTreasuryHistory(id, parseInt(days));
+    
+    res.json({
+      success: true,
+      data: {
+        merchantId: id,
+        history,
+        period: `${days} days`
+      },
+      timestamp: new Date().toISOString(),
+      message: 'Treasury history retrieved successfully'
+    });
+  } catch (error) {
+    console.error('Error in treasury history endpoint', { merchantId: req.params.id, error });
+    res.status(500).json({
+      success: false,
+      error: 'Internal Server Error',
+      message: 'Failed to retrieve treasury history',
+      timestamp: new Date().toISOString()
     });
   }
 });

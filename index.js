@@ -107,6 +107,9 @@ const { CreatorActionService } = require('./src/services/creatorActionService');
 const { CreatorAuditLogService } = require('./src/services/creatorAuditLogService');
 const { CreatorAuthService } = require('./src/services/creatorAuthService');
 const { SorobanSubscriptionVerifier } = require('./src/services/sorobanSubscriptionVerifier');
+const EnhancedSorobanService = require('./services/enhancedSorobanService');
+const EndpointMonitoringService = require('./services/endpointMonitoringService');
+const { createEndpointMonitoringMiddleware, createErrorMonitoringMiddleware, addRequestStartTime } = require('./middleware/endpointMonitoring');
 const { SubscriptionService } = require('./src/services/subscriptionService');
 const { SubscriptionExpiryChecker } = require('./src/services/subscriptionExpiryChecker');
 const { IPIntelligenceService } = require('./src/services/ipIntelligenceService');
@@ -157,12 +160,28 @@ async function createApp(dependencies = {}) {
     dependencies.creatorAuthService || new CreatorAuthService(config);
   const subscriptionVerifier =
     dependencies.subscriptionVerifier || new SorobanSubscriptionVerifier(config);
+  
+  // Initialize enhanced Soroban service with circuit breaker
+  const enhancedSorobanService = 
+    dependencies.enhancedSorobanService || new EnhancedSorobanService(config);
+  app.set('enhancedSorobanService', enhancedSorobanService);
+  
+  // Initialize endpoint monitoring service
+  const endpointMonitoringService = 
+    dependencies.endpointMonitoringService || new EndpointMonitoringService(config);
+  app.set('endpointMonitoringService', endpointMonitoringService);
   const tokenService = dependencies.tokenService || new CdnTokenService(config);
 
   // ── Global middleware ──────────────────────────────────────────────────────
   app.use(cors());
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true }));
+
+  // Add request start time for accurate monitoring
+  app.use(addRequestStartTime);
+
+  // Endpoint monitoring middleware
+  app.use(createEndpointMonitoringMiddleware(endpointMonitoringService));
 
   // Prometheus metrics middleware
   app.use((req, res, next) => {
@@ -420,6 +439,18 @@ async function createApp(dependencies = {}) {
     // ── Auth routes ────────────────────────────────────────────────────────────
     app.use('/auth', require('./routes/auth'));
     app.use('/auth', require('./routes/stellarAuth'));
+
+    // ── SEP-24 Interactive Flow routes ───────────────────────────────────────────
+    app.use('/sep24', require('./routes/sep24'));
+
+    // ── Global Reputation System routes ────────────────────────────────────────
+    app.use('/api/reputation', require('./routes/globalReputation'));
+
+    // ── Soroban Health and Circuit Breaker routes ───────────────────────────────
+    app.use('/api/soroban', require('./routes/sorobanHealth'));
+
+    // ── Endpoint Monitoring and Alerting routes ─────────────────────────────────
+    app.use('/api/monitoring', require('./routes/monitoring'));
 
     // ── Tier-gated content routes ──────────────────────────────────────────────
     // attachTier already ran globally; routes/content.js uses requireTier
@@ -694,6 +725,7 @@ async function createApp(dependencies = {}) {
         );
 
         // ── Error handlers ─────────────────────────────────────────────────────────
+        app.use(createErrorMonitoringMiddleware(endpointMonitoringService));
         app.use((err, req, res, next) => {
           console.error('Unhandled error:', err);
           res.status(500).json({ success: false, error: 'Internal server error' });

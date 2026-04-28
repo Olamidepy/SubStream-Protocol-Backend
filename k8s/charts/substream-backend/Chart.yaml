@@ -1,0 +1,12 @@
+apiVersion: v2
+name: substream-backend
+description: A Helm chart for SubStream Protocol Backend
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - substream
+  - api
+  - kubernetes
+maintainers:
+  - name: SubStream Team

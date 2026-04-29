@@ -483,6 +483,12 @@ async function createApp(dependencies = {}) {
     app.use('/auth', require('./routes/auth'));
     app.use('/auth', require('./routes/stellarAuth'));
 
+    // ── SEP-12 Customer Identification (KYC) routes ─────────────────────────────
+    app.use('/sep12', require('./routes/sep12'));
+
+    // ── SumSub KYC Webhook ───────────────────────────────────────────────────────
+    app.use('/webhooks', require('./routes/sumsubWebhook'));
+
     // ── SEP-24 Interactive Flow routes ───────────────────────────────────────────
     app.use('/sep24', require('./routes/sep24'));
 

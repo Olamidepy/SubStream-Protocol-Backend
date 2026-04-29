@@ -87,6 +87,7 @@ const { getRequestIp } = require('./src/utils/requestIp');
 const { getRedisClient, closeRedisClient } = require('./src/config/redis');
 const { createRateLimiter } = require('./middleware/rateLimiter');
 const createPrivacyRoutes = require('./routes/privacy');
+const createReconciliationRoutes = require('./routes/admin/reconciliation');
 const { setupApolloServer } = require('./src/graphql');
 
 
@@ -306,6 +307,9 @@ function createApp(dependencies = {}) {
 
   // Privacy preference endpoints
   app.use('/api/v1/users', createPrivacyRoutes({ database }));
+
+  // Reconciliation endpoints
+  app.use('/api/admin/reconciliation', createReconciliationRoutes(database));
 
   // Subdomain management endpoints
   app.use('/api/subdomains', createSubdomainRoutes({ database, config, subdomainService, sslCertificateService }));

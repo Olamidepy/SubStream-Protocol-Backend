@@ -1,0 +1,124 @@
+global:
+  environment: production
+  imagePullSecrets: []
+  domain: api.substream.example.com
+
+image:
+  repository: substream/backend
+  tag: latest
+  pullPolicy: Always
+
+replicaCount: 3
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3000
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/server-snippet: |
+      location /metrics {
+        deny all;
+        return 403;
+      }
+  hosts:
+    - host: api.substream.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - api.substream.example.com
+      secretName: substream-tls
+
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+
+affinity:
+  enabled: true
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution: true
+    topologyKey: kubernetes.io/hostname
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /ready
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 2
+
+autoscaling:
+  enabled: true
+  minReplicas: 3
+  maxReplicas: 50
+  targetCPUUtilizationPercentage: 70
+
+env:
+  - name: NODE_ENV
+    value: "production"
+  - name: PORT
+    value: "3000"
+  - name: DATABASE_FILENAME
+    value: "/app/data/substream.db"
+  - name: REDIS_HOST
+    value: "redis-service"
+  - name: REDIS_PORT
+    value: "6379"
+  - name: VAULT_ENABLED
+    value: "true"
+  - name: VAULT_ADDR
+    value: "http://vault:8200"
+  - name: VAULT_ROLE
+    value: "substream-backend"
+  - name: VAULT_AUTH_PATH
+    value: "auth/kubernetes"
+  - name: VAULT_SECRET_PATH
+    value: "secret/data/substream"
+
+configmap:
+  enabled: true
+  data:
+    s3-bucket: substream-assets
+    s3-region: us-east-1
+    soroban-rpc-url: https://soroban-rpc.example.com
+    soroban-network-passphrase: Test SDF Network ; September 2015
+    soroban-contract-id: ""
+
+persistence:
+  enabled: false
+
+networkPolicy:
+  enabled: true
+
+terminationGracePeriodSeconds: 30
+
+schedulerName: default-scheduler

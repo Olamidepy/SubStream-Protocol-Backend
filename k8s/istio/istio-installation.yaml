@@ -1,0 +1,136 @@
+# Istio Installation Configuration for SubStream Protocol
+# This configuration installs Istio with strict mTLS enabled by default
+# for Zero-Trust security model
+
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: istio-control-plane
+  namespace: istio-system
+spec:
+  profile: default
+  components:
+    pilot:
+      k8s:
+        resources:
+          requests:
+            cpu: 500m
+            memory: 2Gi
+          limits:
+            cpu: 1000m
+            memory: 4Gi
+    proxy:
+      k8s:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+  values:
+    global:
+      # Enable strict mTLS by default
+      mtls:
+        enabled: true
+      # Use Istio CA for certificate management
+      istioNamespace: istio-system
+      # Enable mutual TLS for all services
+      proxy:
+        autoInject: enabled
+      # Mesh configuration
+      meshConfig:
+        # Enable permissive mode initially, will switch to strict after validation
+        trustDomain: "substream.local"
+        # Access logging
+        accessLogFile: "/dev/stdout"
+        # Enable telemetry
+        enableTracing: true
+        # Default behavior for mTLS
+        defaultConfig:
+          # Enable mTLS
+          meshId: mesh1
+          # Connection settings
+          connectTimeout: 10s
+          # Circuit breaker settings
+          concurrencyLimit: 1024
+          # Service discovery
+          serviceMetadata:
+            - name: "substream"
+              value: "production"
+    # Base configuration
+    base:
+      # Enable Istio CRDs
+      enableIstioConfigCRDs: true
+      # Enable Istio pilot discovery
+      enablePilotDiscovery: true
+    # Pilot configuration
+    pilot:
+      # Enable pilot
+      enabled: true
+      # Autoscaling
+      autoscaleEnabled: true
+      autoscaleMin: 1
+      autoscaleMax: 5
+      # Resources
+      replicaCount: 1
+    # Proxy configuration
+    proxy:
+      # Enable proxy
+      enabled: true
+      # Auto-inject sidecar
+      autoInject: enabled
+      # Proxy resources
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+    # Policy configuration
+    policy:
+      # Enable policy
+      enabled: true
+      # Check policy
+      checkPolicy:
+        enabled: true
+    # Telemetry configuration
+    telemetry:
+      # Enable telemetry
+      enabled: true
+      # V2 telemetry
+      v2:
+        enabled: true
+    # Sidecar injector configuration
+    sidecarInjector:
+      # Enable sidecar injector
+      enabled: true
+      # Rewrite app HTTP probes
+      rewriteAppHTTPProbes: true
+    # Galley configuration
+    galley:
+      # Enable galley
+      enabled: true
+      # Replica count
+      replicaCount: 1
+    # Citadel configuration (CA)
+    citadel:
+      # Enable citadel
+      enabled: true
+      # Replica count
+      replicaCount: 1
+      # Self-signed CA (for production, use external CA)
+      selfSigned: true
+    # Node agent configuration
+    nodeagent:
+      # Enable node agent
+      enabled: true
+    # Security post-install configuration
+    security:
+      # Enable security
+      enabled: true
+      # Self-signed certificates
+      selfSigned: true
+      # Certificate authority
+      caAddress: istio-citadel.istio-system.svc:8060

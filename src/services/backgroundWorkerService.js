@@ -10,33 +10,33 @@ class BackgroundWorkerService {
     this.rabbitmq = new RabbitMQConnection(config);
     this.isRunning = false;
     this.processors = new Map();
-    
+
     // Initialize resilience components
     this.retryHandler = new RetryHandler({
       maxRetries: 3,
       baseDelay: 1000,
       maxDelay: 30000,
     });
-    
+
     this.circuitBreaker = new CircuitBreaker({
       failureThreshold: 5,
       resetTimeout: 60000,
     });
-    
+
     this.deadLetterHandler = new DeadLetterHandler(this.rabbitmq, config);
-    
+
     // Inject dependencies for testing
     this.emailService = dependencies.emailService || null;
     this.notificationService = dependencies.notificationService || null;
     this.leaderboardService = dependencies.leaderboardService || null;
     this.analyticsService = dependencies.analyticsService || null;
-    
+
     // Initialize new services for protocol enhancements
     const { DunningService } = require('./dunningService');
     const { InvoiceService } = require('./invoiceService');
     const { WebhookDispatcher } = require('./webhookDispatcher');
     const { PrivacyService } = require('./privacyService');
-    
+
     const db = dependencies.database || null;
     this.webhookDispatcher = dependencies.webhookDispatcher || new WebhookDispatcher(db);
     this.dunningService = dependencies.dunningService || new DunningService(db, this.notificationService, this.webhookDispatcher);
@@ -77,7 +77,7 @@ class BackgroundWorkerService {
               await this.processSubscriptionEvent(event);
             }, { operation: 'processSubscriptionEvent' });
           }, { operation: 'subscription_event_processing' });
-          
+
           channel.ack(msg);
         } catch (error) {
           console.error('Error processing subscription event:', error);
@@ -97,7 +97,7 @@ class BackgroundWorkerService {
               await this.processNotification(notification);
             }, { operation: 'processNotification' });
           }, { operation: 'notification_processing' });
-          
+
           channel.ack(msg);
         } catch (error) {
           console.error('Error processing notification:', error);
@@ -117,7 +117,7 @@ class BackgroundWorkerService {
               await this.processEmail(email);
             }, { operation: 'processEmail' });
           }, { operation: 'email_processing' });
-          
+
           channel.ack(msg);
         } catch (error) {
           console.error('Error processing email:', error);
@@ -137,7 +137,7 @@ class BackgroundWorkerService {
               await this.processLeaderboardUpdate(leaderboard);
             }, { operation: 'processLeaderboardUpdate' });
           }, { operation: 'leaderboard_processing' });
-          
+
           channel.ack(msg);
         } catch (error) {
           console.error('Error processing leaderboard update:', error);
@@ -181,7 +181,7 @@ class BackgroundWorkerService {
         });
       }
       // ── Protocol Enhancements Integration ──────────────────────────────────────
-      
+
       // 1. Dunning Management (#143)
       if (event.type === 'PaymentFailedGracePeriodStarted') {
         await this.dunningService.handlePaymentFailed(event);
@@ -201,7 +201,7 @@ class BackgroundWorkerService {
           transactionHash: event.transactionHash
         };
         const invoiceResult = await this.invoiceService.generateInvoice(invoiceData);
-        
+
         // Add invoice URL to event for webhook
         event.invoiceUrl = invoiceResult.url;
       }
@@ -237,7 +237,7 @@ class BackgroundWorkerService {
     try {
       // Here you would integrate with your notification service
       // For now, we'll just log the notification
-      console.log(`Notification for user ${notification.userId}:`, {
+      console.log('Processing notification:', {
         title: notification.title,
         message: notification.message,
         type: notification.type,

@@ -1,0 +1,239 @@
+name: Automated Security Testing
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  security-fuzzing:
+    name: Security Fuzzing & Vulnerability Scanning
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:14-alpine
+        env:
+          POSTGRES_DB: substream_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm install -g @zaproxy/zaproxy-cli
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/substream_test
+          REDIS_URL: redis://localhost:6379
+        run: |
+          npm run migrate
+
+      - name: Start backend application
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/substream_test
+          REDIS_URL: redis://localhost:6379
+          PORT: 3000
+          SOROBAN_RPC_URL: https://soroban-testnet.stellar.org
+          SOROBAN_NETWORK_PASSPHRASE: Test SDF Network ; September 2015
+          SOROBAN_CONTRACT_ID: test_contract_id
+          SOROBAN_SOURCE_SECRET: test_secret
+        run: |
+          npm start &
+          echo $! > backend.pid
+          # Wait for backend to be ready
+          for i in {1..30}; do
+            if curl -s http://localhost:3000/health > /dev/null; then
+              echo "Backend is ready"
+              break
+            fi
+            echo "Waiting for backend... ($i/30)"
+            sleep 2
+          done
+
+      - name: Run authentication bypass tests
+        env:
+          BACKEND_URL: http://localhost:3000
+        run: |
+          npm test -- tests/security/auth-bypass.test.js
+
+      - name: Run SQL injection tests
+        env:
+          BACKEND_URL: http://localhost:3000
+        run: |
+          npm test -- tests/security/sql-injection.test.js
+
+      - name: Run XSS tests
+        env:
+          BACKEND_URL: http://localhost:3000
+        run: |
+          npm test -- tests/security/xss.test.js
+
+      - name: Run path traversal tests
+        env:
+          BACKEND_URL: http://localhost:3000
+        run: |
+          npm test -- tests/security/path-traversal.test.js
+
+      - name: Run Soroban webhook fuzzing tests
+        env:
+          BACKEND_URL: http://localhost:3000
+        run: |
+          npm test -- tests/security/soroban-webhook-fuzzing.test.js
+
+      - name: Run OWASP ZAP active scan
+        env:
+          BACKEND_URL: http://localhost:3000
+        run: |
+          mkdir -p zap-reports
+          zap-cli quick-scan \
+            --self-contained \
+            --start-options '-config api.disablekey=true' \
+            --spider \
+            --scanners all \
+            --alertLevel HIGH \
+            $BACKEND_URL \
+            -r zap-reports/zap-report.html \
+            -l INFO
+
+      - name: Generate security report
+        run: |
+          node scripts/generate-security-report.js
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: security-reports
+          path: |
+            security-reports/
+            zap-reports/
+          retention-days: 30
+
+      - name: Comment PR with security results
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const reportPath = 'security-reports/summary.json';
+            
+            if (fs.existsSync(reportPath)) {
+              const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+              
+              const comment = `## 🔒 Security Testing Results
+              
+              **Overall Status:** ${report.passed ? '✅ PASSED' : '❌ FAILED'}
+              
+              ### Test Summary
+              - Authentication Bypass: ${report.results.authBypass.passed ? '✅' : '❌'} (${report.results.authBypass.tests} tests)
+              - SQL Injection: ${report.results.sqlInjection.passed ? '✅' : '❌'} (${report.results.sqlInjection.tests} tests)
+              - XSS: ${report.results.xss.passed ? '✅' : '❌'} (${report.results.xss.tests} tests)
+              - Path Traversal: ${report.results.pathTraversal.passed ? '✅' : '❌'} (${report.results.pathTraversal.tests} tests)
+              - Soroban Webhook: ${report.results.sorobanWebhook.passed ? '✅' : '❌'} (${report.results.sorobanWebhook.tests} tests)
+              - OWASP ZAP: ${report.results.zap.passed ? '✅' : '❌'} (${report.results.zap.alerts} alerts)
+              
+              ${!report.passed ? '### ⚠️ Critical Issues Found\n\nPlease review the full security report in the artifacts.' : ''}
+              
+              [View Full Report](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})`;
+              
+              github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                body: comment
+              });
+            }
+
+      - name: Stop backend
+        if: always()
+        run: |
+          if [ -f backend.pid ]; then
+            kill $(cat backend.pid) || true
+            rm backend.pid
+          fi
+
+      - name: Fail if security tests failed
+        if: always()
+        run: |
+          node scripts/check-security-results.js
+
+  dependency-scan:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+
+      - name: Run Snyk security scan
+        uses: snyk/actions/node@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high
+
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          version: latest

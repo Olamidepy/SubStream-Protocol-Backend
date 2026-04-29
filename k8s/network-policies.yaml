@@ -1,0 +1,361 @@
+# Kubernetes Network Policies for Zero-Trust Security
+# These policies block all unencrypted traffic and enforce mTLS-only communication
+
+---
+# Default deny all ingress traffic to substream namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all-ingress
+  namespace: substream
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+---
+# Default deny all egress traffic from substream namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all-egress
+  namespace: substream
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+---
+# Allow ingress from Istio ingress gateway to backend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-backend
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: substream-backend
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: istio-system
+      podSelector:
+        matchLabels:
+          app: istio-ingressgateway
+    ports:
+    - protocol: TCP
+      port: 3000
+---
+# Allow backend to access PostgreSQL
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-postgres
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: substream-backend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+---
+# Allow worker to access PostgreSQL
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-worker-to-postgres
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: substream-worker
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: postgres
+    ports:
+    - protocol: TCP
+      port: 5432
+---
+# Allow backend to access Redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-redis
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: substream-backend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+---
+# Allow worker to access Redis
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-worker-to-redis
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: substream-worker
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: redis
+    ports:
+    - protocol: TCP
+      port: 6379
+---
+# Allow backend to access Soroban Indexer
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-backend-to-soroban-indexer
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: substream-backend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: soroban-indexer
+    ports:
+    - protocol: TCP
+      port: 3000
+---
+# Allow worker to access backend (internal API)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-worker-to-backend
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: substream-worker
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: substream-backend
+    ports:
+    - protocol: TCP
+      port: 3000
+---
+# Allow Prometheus to scrape metrics from backend
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-to-backend
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: substream-backend
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+      podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 3000
+---
+# Allow Prometheus to scrape metrics from worker
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-to-worker
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: substream-worker
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+      podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 3000
+---
+# Allow Prometheus to scrape metrics from Soroban Indexer
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-to-soroban
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: soroban-indexer
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+      podSelector:
+        matchLabels:
+          app: prometheus
+    ports:
+    - protocol: TCP
+      port: 3000
+---
+# Allow DNS resolution (required for all pods)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: substream
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    ports:
+    - protocol: UDP
+      port: 53
+---
+# Allow egress to external Stellar RPC endpoints
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-stellar-rpc
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: substream-backend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+---
+# Allow egress to external S3 endpoints
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-s3
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: substream-backend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+---
+# Allow egress to external email providers (SendGrid/SES)
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-email
+  namespace: substream
+spec:
+  podSelector:
+    matchLabels:
+      app: substream-backend
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - protocol: TCP
+      port: 443
+---
+# Deny direct pod-to-pod communication without Istio sidecar
+# This ensures all traffic goes through mTLS via Istio
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: deny-direct-pod-communication
+  namespace: substream
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          security.istio.io/tlsMode: istio
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          security.istio.io/tlsMode: istio

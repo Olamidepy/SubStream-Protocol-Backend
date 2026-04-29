@@ -16,6 +16,17 @@ spec:
     metadata:
       annotations:
         {{- toYaml .Values.podAnnotations | nindent 8 }}
+        {{- if .Values.vault.enabled }}
+        # Vault sidecar injector annotations
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/agent-inject-status: "update"
+        vault.hashicorp.com/role: "{{ .Values.vault.role }}"
+        vault.hashicorp.com/agent-pre-populate-only: "false"
+        vault.hashicorp.com/agent-cache-use-auto-auth-token: "force"
+        vault.hashicorp.com/secret-volumes: |
+          - secretName: "{{ .Values.vault.secretName }}"
+            mountPath: "/vault/secrets"
+        {{- end }}
       labels:
         {{- include "substream-backend.selectorLabels" . | nindent 8 }}
     spec:
@@ -26,6 +37,52 @@ spec:
       serviceAccountName: {{ include "substream-backend.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if and .Values.migration.enabled (eq .Values.migration.strategy "initContainer") }}
+      initContainers:
+        - name: migration
+          securityContext:
+            {{- toYaml .Values.podSecurityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - node
+            - scripts/migrate-init-container.js
+          env:
+            - name: NODE_ENV
+              value: {{ .Values.env.NODE_ENV }}
+            - name: DATABASE_FILENAME
+              value: {{ .Values.database.filename }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: MIGRATION_TIMEOUT
+              value: {{ .Values.migration.timeout | quote }}
+            - name: MIGRATION_LOCK_TIMEOUT
+              value: {{ .Values.migration.lockTimeout | quote }}
+            {{- if .Values.redis.existingSecret }}
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.redis.existingSecret }}
+                  key: {{ .Values.redis.existingPasswordKey }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.migration.resources | nindent 12 }}
+          volumeMounts:
+            - name: data-volume
+              mountPath: /app/data
+            - name: tmp-volume
+              mountPath: /tmp
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
@@ -47,12 +104,28 @@ spec:
               value: {{ .Values.redis.host }}
             - name: REDIS_PORT
               value: {{ .Values.redis.port | quote }}
+            {{- if .Values.vault.enabled }}
+            # Vault configuration
+            - name: VAULT_ENABLED
+              value: "true"
+            - name: VAULT_ADDR
+              value: {{ .Values.vault.addr | quote }}
+            - name: VAULT_ROLE
+              value: {{ .Values.vault.role | quote }}
+            - name: VAULT_AUTH_PATH
+              value: {{ .Values.vault.authPath | quote }}
+            - name: VAULT_SECRET_PATH
+              value: {{ .Values.vault.secretPath | quote }}
+            - name: VAULT_DB_PATH
+              value: {{ .Values.vault.dbPath | quote }}
+            {{- else }}
             {{- if .Values.redis.existingSecret }}
             - name: REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.redis.existingSecret }}
                   key: {{ .Values.redis.existingPasswordKey }}
+            {{- end }}
             {{- end }}
             - name: DB_MAX_CONNECTIONS
               value: {{ .Values.database.maxConnections | quote }}

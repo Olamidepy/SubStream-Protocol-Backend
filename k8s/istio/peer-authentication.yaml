@@ -1,0 +1,91 @@
+# Istio Peer Authentication Policies
+# Enforces strict mTLS for all services in the substream namespace
+
+---
+# Global strict mTLS policy for the entire namespace
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default-mtls
+  namespace: substream
+spec:
+  mtls:
+    mode: STRICT
+---
+# Specific policy for backend service
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: backend-mtls
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: substream-backend
+  mtls:
+    mode: STRICT
+---
+# Specific policy for worker service
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: worker-mtls
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: substream-worker
+  mtls:
+    mode: STRICT
+---
+# Specific policy for Soroban indexer
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: soroban-indexer-mtls
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: soroban-indexer
+  mtls:
+    mode: STRICT
+---
+# Specific policy for database (PostgreSQL)
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: postgres-mtls
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  mtls:
+    mode: STRICT
+---
+# Specific policy for Redis
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: redis-mtls
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  mtls:
+    mode: STRICT
+---
+# Prometheus metrics endpoint - permissive mode for scraping
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: prometheus-mtls
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: prometheus
+  mtls:
+    mode: PERMISSIVE

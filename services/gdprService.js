@@ -25,9 +25,9 @@ class GDPRService {
 
       const filename = `user-data-export-${userAddress}-${Date.now()}.json`;
       const filePath = path.join(this.exportDir, filename);
-      
+
       fs.writeFileSync(filePath, JSON.stringify(exportData, null, 2));
-      
+
       return {
         filename,
         filePath,
@@ -290,43 +290,43 @@ class GDPRService {
     };
 
     // In real implementation, this would update the database
-    console.log(`Anonymized profile for user ${userAddress}`);
+    console.log('Anonymized user profile');
   }
 
   async anonymizeUserComments(userAddress) {
     // Replace user comments with anonymized placeholder
     // In real implementation, this would update the database
-    console.log(`Anonymized comments for user ${userAddress}`);
+    console.log('Anonymized user comments');
   }
 
   async handleUserContent(userAddress) {
     // Depending on policy, either transfer ownership or delete content
     // In real implementation, this would handle content according to legal requirements
-    console.log(`Handled content for user ${userAddress}`);
+    console.log('Handled user content');
   }
 
   async deleteUserAnalytics(userAddress) {
     // Delete analytics data
     // In real implementation, this would delete from analytics database
-    console.log(`Deleted analytics for user ${userAddress}`);
+    console.log('Deleted user analytics');
   }
 
   async deleteUserSubscriptions(userAddress) {
     // Cancel and delete subscription data
     // In real implementation, this would update subscription database
-    console.log(`Deleted subscriptions for user ${userAddress}`);
+    console.log('Deleted user subscriptions');
   }
 
   async deleteUserActivity(userAddress) {
     // Delete activity logs
     // In real implementation, this would delete from activity database
-    console.log(`Deleted activity logs for user ${userAddress}`);
+    console.log('Deleted user activity logs');
   }
 
   async saveDeletionLog(deletionLog) {
     const logFilename = `deletion-log-${deletionLog.userAddress}-${Date.now()}.json`;
     const logFilePath = path.join(this.exportDir, logFilename);
-    
+
     fs.writeFileSync(logFilePath, JSON.stringify(deletionLog, null, 2));
     console.log(`Saved deletion log to ${logFilePath}`);
   }
@@ -361,13 +361,13 @@ class GDPRService {
 
   async getExportStatus(filename) {
     const filePath = path.join(this.exportDir, filename);
-    
+
     if (!fs.existsSync(filePath)) {
       return null;
     }
 
     const stats = fs.statSync(filePath);
-    
+
     return {
       filename,
       size: stats.size,

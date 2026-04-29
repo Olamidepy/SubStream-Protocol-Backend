@@ -12,7 +12,7 @@ class PredictiveChurnAnalysisWorker {
     this.database = database;
     this.checkInterval = options.checkInterval || 3600000; // 1 hour default
     this.lowBalanceThreshold = options.lowBalanceThreshold || 5.0; // $5.00
-    this.inactivityThresholdDays = options.inactivityThresholdDays || 14; 
+    this.inactivityThresholdDays = options.inactivityThresholdDays || 14;
     this.timer = null;
   }
 
@@ -45,7 +45,7 @@ class PredictiveChurnAnalysisWorker {
     try {
       // 1. Get all active subscriptions
       const subscriptions = this.database.listSubscriptionsForRiskCheck();
-      
+
       for (const sub of subscriptions) {
         let riskScore = 0;
         let reasons = [];
@@ -90,8 +90,8 @@ class PredictiveChurnAnalysisWorker {
               analyzedAt: new Date().toISOString()
             }
           });
-          
-          console.log(`Flagged high churn risk: ${sub.walletAddress} for creator ${sub.creatorId} (Score: ${riskScore})`);
+
+          console.log('Flagged high churn risk for subscription (Score:', riskScore + ')');
         } else if (riskScore > 20) {
           await this.database.updateSubscriptionRiskAssessment({
             creatorId: sub.creatorId,
@@ -120,7 +120,7 @@ class PredictiveChurnAnalysisWorker {
       const logs = this.database.db.prepare(
         'SELECT timestamp FROM creator_audit_logs WHERE creator_id = ? AND metadata_json LIKE ? ORDER BY timestamp DESC LIMIT 1'
       ).get(creatorId, `%${walletAddress}%`);
-      
+
       return logs ? logs.timestamp : null;
     } catch (error) {
       return null;

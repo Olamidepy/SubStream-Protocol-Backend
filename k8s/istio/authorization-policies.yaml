@@ -1,0 +1,230 @@
+# Istio Authorization Policies
+# Enforces Zero-Trust access control between services
+
+---
+# Default deny-all policy for the namespace
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: substream-backend
+  action: DENY
+---
+# Allow API Gateway to access backend service
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-api-gateway-to-backend
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: substream-backend
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - cluster.local/ns/ingress-nginx/sa/ingress-nginx
+        - cluster.local/ns/istio-system/sa/istio-ingressgateway
+    to:
+    - operation:
+        methods: ["GET", "POST", "PUT", "PATCH", "DELETE"]
+---
+# Allow backend to access database
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-backend-to-postgres
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - cluster.local/ns/substream/sa/substream-backend
+        - cluster.local/ns/substream/sa/substream-worker
+    to:
+    - operation:
+        ports: ["5432"]
+---
+# Allow backend to access Redis
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-backend-to-redis
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: redis
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - cluster.local/ns/substream/sa/substream-backend
+        - cluster.local/ns/substream/sa/substream-worker
+    to:
+    - operation:
+        ports: ["6379"]
+---
+# Allow Soroban Indexer to be accessed only by backend
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-backend-to-soroban-indexer
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: soroban-indexer
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - cluster.local/ns/substream/sa/substream-backend
+    to:
+    - operation:
+        methods: ["GET", "POST"]
+---
+# Allow worker to access backend
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-worker-to-backend
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: substream-backend
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - cluster.local/ns/substream/sa/substream-worker
+    to:
+    - operation:
+        methods: ["POST"]
+        paths: ["/api/internal/*"]
+---
+# Allow Prometheus to scrape metrics (with mTLS)
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-prometheus-scraping
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: substream-backend
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - cluster.local/ns/monitoring/sa/prometheus
+    to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/metrics"]
+---
+# Allow Prometheus to scrape worker metrics
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-prometheus-scraping-worker
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: substream-worker
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - cluster.local/ns/monitoring/sa/prometheus
+    to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/metrics"]
+---
+# Allow Prometheus to scrape Soroban indexer metrics
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-prometheus-scraping-soroban
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: soroban-indexer
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - cluster.local/ns/monitoring/sa/prometheus
+    to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/metrics"]
+---
+# Deny direct access to internal endpoints from external
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-external-to-internal
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: substream-backend
+  action: DENY
+  rules:
+  - from:
+    - source:
+        notPrincipals:
+        - cluster.local/*
+    to:
+    - operation:
+        paths: ["/api/internal/*"]
+---
+# Specific policy for refund operations - requires additional verification
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: refund-operations-restriction
+  namespace: substream
+spec:
+  selector:
+    matchLabels:
+      app: substream-backend
+  action: ALLOW
+  rules:
+  - from:
+    - source:
+        principals:
+        - cluster.local/ns/substream/sa/substream-backend
+        namespaces:
+        - substream
+    to:
+    - operation:
+        methods: ["POST"]
+        paths: ["/api/payments/refund/*"]
+    when:
+    - key: source.ip
+      values: ["10.0.0.0/8"]  # Only internal IPs
+    - key: request.headers[x-internal-service-token]
+      values: ["INTERNAL_SERVICE_TOKEN"]  # Additional header verification

@@ -1,0 +1,228 @@
+# PostgreSQL mTLS Configuration
+# Configures PostgreSQL to require client certificate verification (sslmode=verify-full)
+
+---
+# PostgreSQL ConfigMap with SSL configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-ssl-config
+  namespace: substream
+data:
+  postgresql.conf: |
+    # SSL Configuration
+    ssl = on
+    ssl_cert_file = '/var/lib/postgresql/data/server.crt'
+    ssl_key_file = '/var/lib/postgresql/data/server.key'
+    ssl_ca_file = '/var/lib/postgresql/data/ca.crt'
+    
+    # Require client certificate verification
+    ssl_min_protocol_version = 'TLSv1.2'
+    ssl_max_protocol_version = 'TLSv1.3'
+    
+    # SSL ciphers
+    ssl_ciphers = 'HIGH:!aNULL:!MD5'
+    
+    # SSL renegotiation
+    ssl_renegotiation_limit = 0
+    
+    # Require client certificates
+    ssl_client_cert_file = '/var/lib/postgresql/data/ca.crt'
+    
+    # Logging
+    log_connections = on
+    log_disconnections = on
+    log_line_prefix = '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+    
+    # Performance tuning
+    shared_buffers = 256MB
+    effective_cache_size = 1GB
+    maintenance_work_mem = 64MB
+    checkpoint_completion_target = 0.9
+    wal_buffers = 16MB
+    default_statistics_target = 100
+    random_page_cost = 1.1
+    effective_io_concurrency = 200
+    work_mem = 2621kB
+    min_wal_size = 1GB
+    max_wal_size = 4GB
+---
+# Secret for PostgreSQL server certificates
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-server-certs
+  namespace: substream
+type: kubernetes.io/tls
+data:
+  # Server certificate (base64 encoded)
+  tls.crt: <BASE64_ENCODED_SERVER_CERT>
+  # Server private key (base64 encoded)
+  tls.key: <BASE64_ENCODED_SERVER_KEY>
+  # CA certificate (base64 encoded)
+  ca.crt: <BASE64_ENCODED_CA_CERT>
+---
+# Secret for PostgreSQL client certificates (for backend pods)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-client-certs
+  namespace: substream
+type: kubernetes.io/tls
+data:
+  # Client certificate (base64 encoded)
+  tls.crt: <BASE64_ENCODED_CLIENT_CERT>
+  # Client private key (base64 encoded)
+  tls.key: <BASE64_ENCODED_CLIENT_KEY>
+  # CA certificate (base64 encoded)
+  ca.crt: <BASE64_ENCODED_CA_CERT>
+---
+# PostgreSQL StatefulSet with SSL volume mounts
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+  namespace: substream
+spec:
+  serviceName: postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+      annotations:
+        # Enable Istio sidecar injection
+        sidecar.istio.io/inject: "true"
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:14-alpine
+        ports:
+        - containerPort: 5432
+          name: postgres
+          protocol: TCP
+        env:
+        - name: POSTGRES_DB
+          value: substream
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: substream-secrets
+              key: db-user
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: substream-secrets
+              key: db-password
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+        - name: postgres-ssl-config
+          mountPath: /etc/postgresql
+        - name: postgres-certs
+          mountPath: /var/lib/postgresql/certs
+          readOnly: true
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - $(POSTGRES_USER)
+            - -d
+            - $(POSTGRES_DB)
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - $(POSTGRES_USER)
+            - -d
+            - $(POSTGRES_DB)
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: postgres-ssl-config
+        configMap:
+          name: postgres-ssl-config
+      - name: postgres-certs
+        secret:
+          secretName: postgres-server-certs
+  volumeClaimTemplates:
+  - metadata:
+      name: postgres-data
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      resources:
+        requests:
+          storage: 10Gi
+---
+# Update backend deployment to mount client certificates
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: substream-backend
+  namespace: substream
+spec:
+  template:
+    spec:
+      containers:
+      - name: substream-backend
+        env:
+        # Add PostgreSQL SSL configuration
+        - name: DATABASE_SSL_MODE
+          value: "verify-full"
+        - name: DATABASE_SSL_CERT
+          value: "/etc/postgresql-certs/tls.crt"
+        - name: DATABASE_SSL_KEY
+          value: "/etc/postgresql-certs/tls.key"
+        - name: DATABASE_SSL_CA
+          value: "/etc/postgresql-certs/ca.crt"
+        volumeMounts:
+        # Mount client certificates
+        - name: postgres-client-certs
+          mountPath: /etc/postgresql-certs
+          readOnly: true
+      volumes:
+      - name: postgres-client-certs
+        secret:
+          secretName: postgres-client-certs
+          defaultMode: 0400
+---
+# Update worker deployment to mount client certificates
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: substream-worker
+  namespace: substream
+spec:
+  template:
+    spec:
+      containers:
+      - name: substream-worker
+        env:
+        # Add PostgreSQL SSL configuration
+        - name: DATABASE_SSL_MODE
+          value: "verify-full"
+        - name: DATABASE_SSL_CERT
+          value: "/etc/postgresql-certs/tls.crt"
+        - name: DATABASE_SSL_KEY
+          value: "/etc/postgresql-certs/tls.key"
+        - name: DATABASE_SSL_CA
+          value: "/etc/postgresql-certs/ca.crt"
+        volumeMounts:
+        # Mount client certificates
+        - name: postgres-client-certs
+          mountPath: /etc/postgresql-certs
+          readOnly: true
+      volumes:
+      - name: postgres-client-certs
+        secret:
+          secretName: postgres-client-certs
+          defaultMode: 0400

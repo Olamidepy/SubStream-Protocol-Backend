@@ -1,0 +1,153 @@
+= Installation Instructions for SubStream Backend Helm Chart
+
+== Prerequisites
+
+1. Helm 3.x installed
+2. Kubernetes cluster 1.24+
+3. cert-manager installed with Let's Encrypt issuer
+4. NGINX Ingress Controller deployed
+
+=== Install cert-manager (if not already installed)
+
+  kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+
+=== Create ClusterIssuer for Let's Encrypt
+
+  kubectl apply -f - <<EOF
+  apiVersion: cert-manager.io/v1
+  kind: ClusterIssuer
+  metadata:
+    name: letsencrypt-prod
+  spec:
+    acme:
+      server: https://acme-v02.api.letsencrypt.org/directory
+      email: admin@substream.example.com
+      privateKeySecretRef:
+        name: letsencrypt-prod
+      solvers:
+        - http01:
+            ingress:
+              class: nginx
+  EOF
+
+=== Install NGINX Ingress Controller (if not already installed)
+
+  helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+  helm install ingress-nginx ingress-nginx/ingress-nginx \
+    --namespace ingress-nginx \
+    --create-namespace
+
+== Installation Commands
+
+=== Development Environment
+
+  helm install substream-backend-dev k8s/charts/substream-backend \
+    --namespace substream-dev \
+    --create-namespace \
+    -f k8s/charts/substream-backend/values-dev.yaml
+
+=== Staging Environment
+
+  helm install substream-backend-staging k8s/charts/substream-backend \
+    --namespace substream-staging \
+    --create-namespace \
+    -f k8s/charts/substream-backend/values-staging.yaml
+
+=== Production Environment
+
+  helm install substream-backend-prod k8s/charts/substream-backend \
+    --namespace substream-prod \
+    --create-namespace \
+    -f k8s/charts/substream-backend/values-prod.yaml
+
+== Upgrade Commands
+
+  helm upgrade substream-backend-prod k8s/charts/substream-backend \
+    --namespace substream-prod \
+    -f k8s/charts/substream-backend/values-prod.yaml
+
+== Uninstall Commands
+
+  helm uninstall substream-backend-prod --namespace substream-prod
+
+  kubectl delete pvc -l app.kubernetes.io/instance=substream-backend-prod \
+    --namespace substream-prod
+
+  kubectl delete configmap substream-backend-prod-config \
+    --namespace substream-prod
+
+== Verify Deployment
+
+  kubectl get pods -n substream-prod
+  kubectl get svc -n substream-prod
+  kubectl get ingress -n substream-prod
+  kubectl get pdb -n substream-prod
+  kubectl describe deployment substream-backend-prod -n substream-prod
+
+== Check Pod Disruption Budget
+
+  kubectl get poddisruptionbudget -n substream-prod
+  kubectl get poddisruptionbudget -n substream-prod -o yaml
+
+== View Logs
+
+  kubectl logs -n substream-prod -l app.kubernetes.io/name=substream-backend --tail=100 -f
+
+== Access Application
+
+  curl https://api.substream.example.com/health
+  curl https://api.substream.example.com/ready
+
+== Horizontal Pod Autoscaler
+
+  kubectl get hpa -n substream-prod
+  kubectl describe hpa substream-backend-prod -n substream-prod
+
+== Resource Usage
+
+  kubectl top pods -n substream-prod
+  kubectl top nodes
+
+== GitOps Integration (ArgoCD)
+
+  kubectl apply -f - <<EOF
+  apiVersion: argoproj.io/v1alpha1
+  kind: Application
+  metadata:
+    name: substream-backend
+    namespace: argocd
+  spec:
+    project: default
+    source:
+      repoURL: https://github.com/substream/protocol-backend.git
+      path: k8s/charts/substream-backend
+      targetRevision: HEAD
+      helm:
+        valueFiles:
+          - values-prod.yaml
+    destination:
+      server: https://kubernetes.default.svc
+      namespace: substream-prod
+    syncPolicy:
+      automated:
+        prune: true
+        selfHeal: true
+  EOF
+
+== Key Configuration Overrides
+
+  # Set replica count
+  --set replicaCount=3
+
+  # Set image tag
+  --set image.tag=v1.2.3
+
+  # Set environment
+  --set global.environment=production
+
+  # Enable autoscaling
+  --set autoscaling.enabled=true
+
+  # Change domain
+  --set global.domain=api.prod.substream.com
+  --set ingress.hosts[0].host=api.prod.substream.com

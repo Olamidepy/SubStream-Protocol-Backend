@@ -1,14 +1,26 @@
 const StellarSdk = require("@stellar/stellar-sdk");
+const SandboxService = require('./sandboxService');
 
 class StellarAuthService {
   constructor() {
-    this.networkPassphrase =
-      process.env.STELLAR_NETWORK_PASSPHRASE ||
-      "Test SDF Network ; September 2015";
-    this.serverUrl =
-      process.env.STELLAR_HORIZON_URL || "https://horizon-testnet.stellar.org";
-    this.server = new StellarSdk.Horizon.Server(this.serverUrl);
+    this.sandboxService = new SandboxService();
     this.challenges = new Map(); // In production, use Redis
+    this.initializeConfig();
+  }
+
+  async initializeConfig() {
+    await this.sandboxService.initialize();
+    const stellarConfig = this.sandboxService.getStellarConfig();
+    
+    this.networkPassphrase = stellarConfig.networkPassphrase;
+    this.serverUrl = stellarConfig.horizonUrl;
+    this.server = new StellarSdk.Horizon.Server(this.serverUrl);
+    
+    console.log('[StellarAuth] Initialized with config:', {
+      network: this.networkPassphrase.includes('Test') ? 'testnet' : 'mainnet',
+      url: this.serverUrl,
+      sandbox: this.sandboxService.isSandboxMode
+    });
   }
 
   /**

@@ -33,13 +33,13 @@ class CronService {
 
     // Rotate feed tokens every 6 hours
     this.scheduleJob('rotate-feed-tokens', '0 */6 * * *', async () => {
-      console.log('Running feed token rotation...');
+      console.log('Running feed credential rotation...');
       try {
         const feedService = require('./feedService');
         feedService.cleanupExpiredTokens();
-        console.log('Feed token rotation completed');
+        console.log('Feed credential rotation completed');
       } catch (error) {
-        console.error('Error in feed token rotation:', error);
+        console.error('Error in feed credential rotation:', error);
       }
     });
   }
@@ -57,7 +57,7 @@ class CronService {
 
     this.jobs.set(name, job);
     console.log(`Scheduled job '${name}' with schedule: ${schedule}`);
-    
+
     return job;
   }
 

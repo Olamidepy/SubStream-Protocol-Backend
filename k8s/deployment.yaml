@@ -25,6 +25,16 @@ spec:
         prometheus.io/scrape: "true"
         prometheus.io/port: "3000"
         prometheus.io/path: "/metrics"
+        # Vault sidecar injector annotations
+        vault.hashicorp.com/agent-inject: "true"
+        vault.hashicorp.com/agent-inject-status: "update"
+        vault.hashicorp.com/role: "substream-backend"
+        vault.hashicorp.com/agent-pre-populate-only: "false"
+        vault.hashicorp.com/agent-cache-use-auto-auth-token: "force"
+        # Inject secrets as environment variables
+        vault.hashicorp.com/secret-volumes: |
+          - secretName: "substream-secrets"
+            mountPath: "/vault/secrets"
     spec:
       securityContext:
         runAsNonRoot: true
@@ -50,11 +60,20 @@ spec:
           value: "redis-service"
         - name: REDIS_PORT
           value: "6379"
-        - name: REDIS_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: substream-secrets
-              key: redis-password
+        # Vault configuration
+        - name: VAULT_ENABLED
+          value: "true"
+        - name: VAULT_ADDR
+          value: "http://vault:8200"
+        - name: VAULT_ROLE
+          value: "substream-backend"
+        - name: VAULT_AUTH_PATH
+          value: "auth/kubernetes"
+        - name: VAULT_SECRET_PATH
+          value: "secret/data/substream"
+        - name: VAULT_DB_PATH
+          value: "database/creds/substream-role"
+        # S3 configuration from ConfigMap
         - name: S3_BUCKET
           valueFrom:
             configMapKeyRef:
@@ -65,21 +84,7 @@ spec:
             configMapKeyRef:
               name: substream-config
               key: s3-region
-        - name: S3_ACCESS_KEY_ID
-          valueFrom:
-            secretKeyRef:
-              name: substream-secrets
-              key: s3-access-key-id
-        - name: S3_SECRET_ACCESS_KEY
-          valueFrom:
-            secretKeyRef:
-              name: substream-secrets
-              key: s3-secret-access-key
-        - name: CREATOR_AUTH_SECRET
-          valueFrom:
-            secretKeyRef:
-              name: substream-secrets
-              key: creator-auth-secret
+        # Soroban configuration from ConfigMap
         - name: SOROBAN_RPC_URL
           valueFrom:
             configMapKeyRef:

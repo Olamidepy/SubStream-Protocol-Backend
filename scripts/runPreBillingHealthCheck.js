@@ -32,7 +32,7 @@ const config = {
 function validateConfig() {
   const required = ['SOROBAN_RPC_URL', 'SOROBAN_SOURCE_SECRET', 'SUBSTREAM_CONTRACT_ID'];
   const missing = required.filter(key => !process.env[key]);
-  
+
   if (missing.length > 0) {
     console.error('Missing required environment variables:');
     missing.forEach(key => console.error(`  - ${key}`));
@@ -47,7 +47,7 @@ function initializeServices() {
     const dbPath = process.env.DATABASE_PATH || './data/app.db';
     config.database = new AppDatabase(dbPath);
     console.log(`Database initialized: ${dbPath}`);
-    
+
     // Initialize email service
     config.emailService = new PreBillingEmailService({
       fromEmail: process.env.FROM_EMAIL,
@@ -55,7 +55,7 @@ function initializeServices() {
       supportEmail: process.env.SUPPORT_EMAIL
     });
     console.log('Email service initialized');
-    
+
   } catch (error) {
     console.error('Failed to initialize services:', error);
     process.exit(1);
@@ -66,43 +66,43 @@ function initializeServices() {
 async function main() {
   console.log('=== Pre-Billing Health Check Runner ===');
   console.log(`Started at: ${new Date().toISOString()}`);
-  
+
   try {
     // Validate configuration
     validateConfig();
-    
+
     // Initialize services
     initializeServices();
-    
+
     // Create and start worker
     const worker = new PreBillingHealthWorker(config);
-    
+
     console.log('Configuration:');
     console.log(`  - Warning Threshold Days: ${config.warningThresholdDays}`);
     console.log(`  - Batch Size: ${config.batchSize}`);
     console.log(`  - Cron Schedule: ${config.cronSchedule}`);
     console.log(`  - Run On Start: ${config.runOnStart}`);
-    
+
     // Start the worker
     worker.start();
-    
+
     console.log('Pre-billing health check worker started successfully');
     console.log('Press Ctrl+C to stop the worker');
-    
+
     // Set up graceful shutdown
     process.on('SIGINT', async () => {
       console.log('\nReceived SIGINT, shutting down gracefully...');
       await worker.shutdown();
     });
-    
+
     process.on('SIGTERM', async () => {
       console.log('\nReceived SIGTERM, shutting down gracefully...');
       await worker.shutdown();
     });
-    
+
     // Keep the process running
     process.stdin.resume();
-    
+
   } catch (error) {
     console.error('Failed to start pre-billing health check worker:', error);
     process.exit(1);
@@ -112,7 +112,7 @@ async function main() {
 // Handle command line arguments
 function handleArguments() {
   const args = process.argv.slice(2);
-  
+
   if (args.includes('--help') || args.includes('-h')) {
     console.log(`
 Pre-Billing Health Check Runner
@@ -155,23 +155,23 @@ Examples:
 `);
     process.exit(0);
   }
-  
+
   if (args.includes('--run-once')) {
     runOnce();
     return;
   }
-  
+
   const testWalletIndex = args.findIndex(arg => arg === '--test-wallet');
   if (testWalletIndex !== -1 && args[testWalletIndex + 1]) {
     testWallet(args[testWalletIndex + 1]);
     return;
   }
-  
+
   if (args.includes('--status')) {
     showStatus();
     return;
   }
-  
+
   if (args.includes('--metrics')) {
     showMetrics();
     return;
@@ -181,22 +181,22 @@ Examples:
 // Run health check once
 async function runOnce() {
   console.log('Running pre-billing health check once...');
-  
+
   try {
     validateConfig();
     initializeServices();
-    
+
     const worker = new PreBillingHealthWorker(config);
     const result = await worker.runHealthCheck();
-    
+
     console.log('Health check completed:');
     console.log(`  - Processed: ${result.results.processed}`);
     console.log(`  - Warnings Sent: ${result.results.warningsSent}`);
     console.log(`  - Errors: ${result.results.errors}`);
     console.log(`  - Duration: ${result.duration}ms`);
-    
+
     process.exit(0);
-    
+
   } catch (error) {
     console.error('Health check failed:', error);
     process.exit(1);
@@ -205,29 +205,28 @@ async function runOnce() {
 
 // Test specific wallet
 async function testWallet(walletAddress) {
-  console.log(`Testing health check for wallet: ${walletAddress}`);
-  
+  console.log('Testing health check for wallet');
+
   try {
     validateConfig();
     initializeServices();
-    
+
     const worker = new PreBillingHealthWorker(config);
     const result = await worker.testWallet(walletAddress, 10000000); // 1 XLM default
-    
+
     console.log('Health check result:');
-    console.log(`  - Wallet: ${result.walletAddress}`);
     console.log(`  - Healthy: ${result.healthCheck.isHealthy}`);
     console.log(`  - Issues: ${result.healthCheck.issues.length}`);
-    
+
     if (result.healthCheck.issues.length > 0) {
       console.log('Issues:');
       result.healthCheck.issues.forEach((issue, index) => {
         console.log(`    ${index + 1}. ${issue.type}: ${issue.message}`);
       });
     }
-    
+
     process.exit(0);
-    
+
   } catch (error) {
     console.error('Wallet test failed:', error);
     process.exit(1);
@@ -239,26 +238,26 @@ async function showStatus() {
   try {
     validateConfig();
     initializeServices();
-    
+
     const worker = new PreBillingHealthWorker(config);
     const status = worker.getStatus();
-    
+
     console.log('Worker Status:');
     console.log(`  - Is Running: ${status.isRunning}`);
     console.log(`  - Last Run: ${status.lastRun || 'Never'}`);
     console.log(`  - Run History: ${status.runHistory.length} entries`);
     console.log(`  - Warning Threshold: ${status.config.warningThresholdDays} days`);
     console.log(`  - Batch Size: ${status.config.batchSize}`);
-    
+
     if (status.healthCheckStats) {
       console.log('Balance Checker Stats:');
       console.log(`  - RPC URL: ${status.healthCheckStats.rpcUrl}`);
       console.log(`  - Cache Size: ${status.healthCheckStats.cacheSize}`);
       console.log(`  - Rate Limiter Size: ${status.healthCheckStats.rateLimiterSize}`);
     }
-    
+
     process.exit(0);
-    
+
   } catch (error) {
     console.error('Failed to get status:', error);
     process.exit(1);
@@ -270,10 +269,10 @@ async function showMetrics() {
   try {
     validateConfig();
     initializeServices();
-    
+
     const worker = new PreBillingHealthWorker(config);
     const metrics = worker.getMetrics();
-    
+
     console.log('Performance Metrics:');
     console.log(`  - Total Runs: ${metrics.totalRuns}`);
     console.log(`  - Successful Runs: ${metrics.successfulRuns}`);
@@ -284,9 +283,9 @@ async function showMetrics() {
     console.log(`  - Total Warnings: ${metrics.totalWarnings}`);
     console.log(`  - Total Errors: ${metrics.totalErrors}`);
     console.log(`  - Last Run: ${metrics.lastRun || 'Never'}`);
-    
+
     process.exit(0);
-    
+
   } catch (error) {
     console.error('Failed to get metrics:', error);
     process.exit(1);

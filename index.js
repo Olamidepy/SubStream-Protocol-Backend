@@ -140,6 +140,10 @@ const createReconciliationRoutes = require('./routes/admin/reconciliation');
 const { setupApolloServer } = require('./src/graphql');
 
 
+// Initialize payload size limit middleware
+const { PayloadSizeLimitMiddleware } = require('./src/middleware/payloadSizeLimit');
+const { GraphQLPayloadLimitMiddleware } = require('./src/middleware/graphqlPayloadLimit');
+
 // Tier middleware — attaches req.user.tier to every request
 const { attachTier } = require('./middleware/tierAuth');
 const { MerchantCorsMiddleware } = require('./src/middleware/merchantCorsMiddleware');
@@ -180,8 +184,37 @@ async function createApp(dependencies = {}) {
   // ── Global middleware ──────────────────────────────────────────────────────
   const merchantCors = new MerchantCorsMiddleware(database);
   app.use(cors(merchantCors.corsOptionsDelegate()));
-  app.use(express.json({ limit: '10mb' }));
-  app.use(express.urlencoded({ extended: true }));
+  
+  // Initialize payload size limit middleware with security-focused configuration
+  const payloadSizeLimit = new PayloadSizeLimitMiddleware({
+    jsonLimit: process.env.PAYLOAD_JSON_LIMIT || 1024 * 1024, // 1MB for JSON
+    urlencodedLimit: process.env.PAYLOAD_URLENCODED_LIMIT || 1024 * 1024, // 1MB for URL-encoded
+    textLimit: process.env.PAYLOAD_TEXT_LIMIT || 1024 * 1024, // 1MB for text
+    rawLimit: process.env.PAYLOAD_RAW_LIMIT || 10 * 1024 * 1024, // 10MB for raw/binary
+    graphqlLimit: process.env.PAYLOAD_GRAPHQL_LIMIT || 2 * 1024 * 1024, // 2MB for GraphQL
+    fileLimit: process.env.PAYLOAD_FILE_LIMIT || 50 * 1024 * 1024, // 50MB for file uploads
+    strictMode: process.env.NODE_ENV === 'production', // Enable strict mode in production
+    enableLogging: process.env.PAYLOAD_LOGGING !== 'false' // Enable logging by default
+  });
+  
+  // Initialize GraphQL payload limit middleware
+  const graphqlPayloadLimit = new GraphQLPayloadLimitMiddleware({
+    maxQueryLength: parseInt(process.env.GRAPHQL_MAX_QUERY_LENGTH) || 10000,
+    maxVariablesSize: parseInt(process.env.GRAPHQL_MAX_VARIABLES_SIZE) || 1024 * 1024,
+    maxQueryDepth: parseInt(process.env.GRAPHQL_MAX_QUERY_DEPTH) || 10,
+    maxComplexity: parseInt(process.env.GRAPHQL_MAX_COMPLEXITY) || 1000,
+    enableLogging: process.env.GRAPHQL_LOGGING !== 'false'
+  });
+  
+  // Apply payload size limits before body parsing
+  app.use(payloadSizeLimit.middleware());
+  
+  // Apply GraphQL-specific limits for GraphQL endpoints
+  app.use('/graphql', graphqlPayloadLimit.middleware());
+  
+  // Remove the default express.json() and express.urlencoded() as they are now handled by the payload limit middleware
+  // app.use(express.json({ limit: '10mb' }));
+  // app.use(express.urlencoded({ extended: true }));
 
   // Request tracing middleware must be registered early for trace propagation
   app.use(requestTracingMiddleware);

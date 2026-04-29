@@ -32,10 +32,11 @@ class WebhookDispatcherService {
 
     const timestamp = Math.floor(Date.now() / 1000); // Unix timestamp (seconds)
 
-    // Add timestamp to payload for replay protection
+    // Add timestamp and nonce to payload for replay protection
     const signedPayload = {
       ...payload,
-      timestamp
+      timestamp,
+      nonce: crypto.randomBytes(16).toString('hex') // Add nonce for additional security
     };
 
     const signature = this.generateHMACSignature(signedPayload, merchant.webhook_secret);
@@ -55,11 +56,55 @@ class WebhookDispatcherService {
   }
 
   generateHMACSignature(payload, secret) {
-    const payloadStr = JSON.stringify(payload);
+    // Normalize payload to ensure consistent signature generation
+    const normalizedPayload = this.normalizePayload(payload);
+    const payloadStr = JSON.stringify(normalizedPayload);
+    
     return crypto
       .createHmac('sha256', secret)
       .update(payloadStr, 'utf8')
       .digest('hex');
+  }
+
+  /**
+   * Normalize payload object for consistent signature generation
+   * @param {Object} payload 
+   * @returns {Object}
+   */
+  normalizePayload(payload) {
+    if (typeof payload !== 'object' || payload === null) {
+      return payload;
+    }
+
+    const normalized = {};
+    const keys = Object.keys(payload).sort(); // Sort keys for consistent ordering
+    
+    for (const key of keys) {
+      if (typeof payload[key] === 'object' && payload[key] !== null && !Array.isArray(payload[key])) {
+        normalized[key] = this.normalizePayload(payload[key]); // Recursively normalize nested objects
+      } else {
+        normalized[key] = payload[key];
+      }
+    }
+    
+    return normalized;
+  }
+
+  /**
+   * Verify webhook signature with timing-safe comparison
+   * @param {Object} payload
+   * @param {string} signature
+   * @param {string} secret
+   * @returns {boolean}
+   */
+  verifyHMACSignature(payload, signature, secret) {
+    if (!secret || !signature) return false;
+    
+    const expectedSignature = this.generateHMACSignature(payload, secret);
+    return crypto.timingSafeEqual(
+      Buffer.from(signature, 'hex'),
+      Buffer.from(expectedSignature, 'hex')
+    );
   }
 
   async getMerchantWithSecret(merchantId) {

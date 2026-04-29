@@ -154,6 +154,8 @@ async function createApp(dependencies = {}) {
   const app = express();
   const config = dependencies.config || await loadConfig(process.env, vaultService);
   const database = dependencies.database || new AppDatabase(config.database.filename);
+  const cronService = require('./services/cronService');
+  cronService.setDatabase(database);
   const auditLogService =
     dependencies.auditLogService || new CreatorAuditLogService(database);
   const creatorActionService =

@@ -219,7 +219,7 @@ if (args.includes('--soroban')) {
   } else {
     startWorker();
 
-    // === NEW: Start Merchant Webhook Dispatcher Worker ===
+    // === Start Merchant Webhook Dispatcher Worker ===
     console.log('[Worker] Starting Merchant Webhook Dispatcher...');
     try {
       require('./src/workers/webhookWorker');

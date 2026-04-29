@@ -136,6 +136,7 @@ const { getRequestIp } = require('./src/utils/requestIp');
 const { getRedisClient, closeRedisClient } = require('./src/config/redis');
 const { createRateLimiter } = require('./middleware/rateLimiter');
 const createPrivacyRoutes = require('./routes/privacy');
+const createReconciliationRoutes = require('./routes/admin/reconciliation');
 const { setupApolloServer } = require('./src/graphql');
 
 
